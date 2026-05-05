@@ -108,24 +108,23 @@ test('moderate impact pulses still read over already-high section energy', async
   assert.ok(maxDistanceFromCenter(withBeatPulse) > maxDistanceFromCenter(rollingHigh) * 1.18, 'beat pulses should visibly expand the black hole over the rolling high-energy baseline');
 });
 
-test('black hole particle snapshots expose curved streaks without sprite dots', async () => {
+test('black hole particle snapshots expose tiny accretion glints without sprite dots', async () => {
   const { createBlackHoleParticleSystem, blackHoleParticleSnapshots } = await loadParticleModule();
   const system = createBlackHoleParticleSystem(blackHole, { count: 32, seed: 'curved-streak-test' });
   const snapshots = blackHoleParticleSnapshots(system, blackHole, { energy: 0.72, intensity: 0.6, pulse: 0.4 });
 
-  assert.ok(snapshots.length > 0, 'expected visible particle streaks');
+  assert.ok(snapshots.length > 0, 'expected visible particle glints');
   for (const particle of snapshots) {
-    assert.equal(particle.renderMode, 'curved-streak');
+    assert.equal(particle.renderMode, 'micro-streak');
     assert.equal(particle.spriteRadius, 0, 'black-hole particles should be rendered as strokes, not dot sprites');
     assert.ok(Number.isFinite(particle.controlX), 'expected a finite bezier control point x');
     assert.ok(Number.isFinite(particle.controlY), 'expected a finite bezier control point y');
 
     const chordX = particle.x - particle.tailX;
     const chordY = particle.y - particle.tailY;
-    const controlX = particle.controlX - particle.tailX;
-    const controlY = particle.controlY - particle.tailY;
-    const cross = Math.abs(chordX * controlY - chordY * controlX);
-    assert.ok(cross > 0.35, 'curve control point should bend the streak instead of falling on a straight line');
+    const chordLength = Math.hypot(chordX, chordY);
+    assert.ok(chordLength < 3.4, `accretion glints should stay short instead of becoming microscope worms, got ${chordLength}`);
+    assert.ok(particle.size < 1.05, `accretion glints should stay thin, got ${particle.size}`);
   }
 });
 
@@ -146,7 +145,7 @@ test('black hole disc emits substantial light particles tinted by the current do
   assert.ok(visibleCount(surge) >= 52, `high-energy dominant-color sections should emit substantial light particles, got ${visibleCount(surge)}`);
   assert.ok(visibleCount(surge) > visibleCount(calm) * 3, 'energy should strongly increase the emitted light particle count');
   assert.ok(surge.every((particle) => particle.color === '#ff44aa'), 'disc light particles should use the current dominant note color');
-  assert.ok(surge.every((particle) => particle.renderMode === 'disc-light-particle'));
+  assert.ok(surge.every((particle) => particle.renderMode === 'photon-dust'));
   assert.ok(surge.every((particle) => particle.spriteRadius === 0), 'disc light should render as light motes/streaks, not old black-hole sprites');
   assert.ok(surge.every((particle) => Number.isFinite(particle.x) && Number.isFinite(particle.y)));
   assert.ok(
@@ -157,9 +156,9 @@ test('black hole disc emits substantial light particles tinted by the current do
 
 test('black hole disc uses a high-count field of smaller light particles', async () => {
   const { createBlackHoleParticleSystem, blackHoleLightParticleSnapshots } = await loadParticleModule();
-  const system = createBlackHoleParticleSystem(blackHole, { count: 520, seed: 'fine-light-field-test' });
+  const system = createBlackHoleParticleSystem(blackHole, { count: 1120, seed: 'fine-light-field-test' });
 
-  assert.equal(system.particles.length, 520, 'the lightfield should support many fine particles instead of a small clamped swarm');
+  assert.equal(system.particles.length, 1120, 'the lightfield should support a dense photon-dust cloud instead of a small clamped swarm');
 
   const surge = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.91, intensity: 0.78, pulse: 0.72 }, {
     color: '#54c7ff',
@@ -169,11 +168,19 @@ test('black hole disc uses a high-count field of smaller light particles', async
   const maxLineWidth = Math.max(...visible.map((particle) => particle.lineWidth));
   const averageLineWidth = visible.reduce((sum, particle) => sum + particle.lineWidth, 0) / visible.length;
   const maxGlowRadius = Math.max(...visible.map((particle) => particle.glowRadius));
+  const segmentLengths = visible.map((particle) => Math.hypot(particle.x - particle.tailX, particle.y - particle.tailY));
+  const averageSegmentLength = segmentLengths.reduce((sum, length) => sum + length, 0) / segmentLengths.length;
+  const maxSegmentLength = Math.max(...segmentLengths);
+  const maxPointRadius = Math.max(...visible.map((particle) => particle.pointRadius));
 
-  assert.ok(visible.length >= 330, `high-energy sections should show a dense fine-grain field, got ${visible.length}`);
-  assert.ok(averageLineWidth < 0.36, `light particles should be hairline-small on average, got ${averageLineWidth}`);
-  assert.ok(maxLineWidth < 0.72, `no individual light particle should read like a parasite-sized worm, got ${maxLineWidth}`);
-  assert.ok(maxGlowRadius < 5.8, `individual halos should stay small, got ${maxGlowRadius}`);
+  assert.ok(visible.length >= 760, `high-energy sections should show a dense fine-grain field, got ${visible.length}`);
+  assert.ok(surge.every((particle) => particle.renderMode === 'photon-dust'), 'disc light should render as photon dust, not worm-like curved streaks');
+  assert.ok(averageLineWidth < 0.18, `light particles should be hairline-small on average, got ${averageLineWidth}`);
+  assert.ok(maxLineWidth < 0.32, `no individual light particle should read like a parasite-sized worm, got ${maxLineWidth}`);
+  assert.ok(averageSegmentLength < 1.15, `motion glints should be tiny, not worm-like streaks, got avg ${averageSegmentLength}`);
+  assert.ok(maxSegmentLength < 2.8, `no light particle should leave a long worm trail, got ${maxSegmentLength}`);
+  assert.ok(maxGlowRadius < 2.6, `individual halos should stay like fine dust, got ${maxGlowRadius}`);
+  assert.ok(maxPointRadius <= 0.82, `individual light points should stay tiny, got ${maxPointRadius}`);
 });
 
 

@@ -17,8 +17,8 @@ import {
   blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-fine-pixi-lightfield-v1';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-fine-pixi-lightfield-v1';
+} from './black-hole-particles.js?v=20260505-photon-dust-v1';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-photon-dust-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 
@@ -210,7 +210,7 @@ function ensureBlackHoleParticleSystem() {
   }
   const key = blackHoleSystemKey(blackHole);
   if (!blackHoleParticleSystem || blackHoleParticleKey !== key) {
-    blackHoleParticleSystem = createBlackHoleParticleSystem(blackHole, { count: 520, seed: key });
+    blackHoleParticleSystem = createBlackHoleParticleSystem(blackHole, { count: 1120, seed: key });
     blackHoleParticleKey = key;
   }
   return blackHoleParticleSystem;
@@ -764,7 +764,7 @@ function ensurePixiLightLayer() {
     width: W || canvasFrame.clientWidth || window.innerWidth || 1,
     height: H || canvasFrame.clientHeight || window.innerHeight || 1,
     dpr: DPR(),
-    maxParticles: 640,
+    maxParticles: 1220,
   })
     .then((layer) => {
       pixiLightLayer = layer;
@@ -816,9 +816,9 @@ function drawBlackHole() {
   for (const particle of particles) {
     const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
     if (alpha <= 0.02) continue;
-    ctx.globalAlpha = alpha * (0.22 + power * 0.50);
+    ctx.globalAlpha = alpha * (0.09 + power * 0.18);
     ctx.strokeStyle = colorWithAlpha(particle.color, 0.74);
-    ctx.lineWidth = Math.max(0.45, particle.size * 0.62);
+    ctx.lineWidth = Math.max(0.13, particle.size * 0.34);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
