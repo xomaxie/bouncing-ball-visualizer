@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+.basic-pitch-venv/
+.venv/
+venv/
+
+# caches / build artifacts
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.npm/
+.DS_Store
+
+# local runtime temp/state
+.env
+.env.*
+*.log
+coverage/
+dist/
+build/
+playwright-report/
+test-results/

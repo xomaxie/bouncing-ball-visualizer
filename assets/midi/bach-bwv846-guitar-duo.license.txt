@@ -1,0 +1,9 @@
+Title: Das Wohltemperierte Klavier I, Praeludium I / BWV 846 Prelude I, guitar duo
+Composer: J. S. Bach (1685-1750)
+Source: Mutopia Project, Music ID Mutopia-2017/11/06-2206
+Source URL: https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2206
+MIDI URL: https://www.mutopiaproject.org/ftp/BachJS/BWV846/wtk1-prelude1-guitar-duo/wtk1-prelude1-guitar-duo.mid
+License: Public Domain
+License details: https://www.mutopiaproject.org/legal.html
+Retrieved: 2026-05-04
+Notes: Mutopia page credits source D B Mus. ms. Bach P 202 (Berlin, Staatsbibliothek) and maintainer Jeffrey Olson.

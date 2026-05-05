@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Physics Music Visualizer</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main id="appShell" class="demoShell is-empty" data-state="empty">
+    <section class="stageModule" aria-label="Physics music beat circle">
+      <div class="canvasFrame">
+        <canvas id="arena" aria-label="Circular physics arena"></canvas>
+      </div>
+    </section>
+
+    <section class="uploadOverlay" aria-label="Upload music">
+      <div class="fileDrop" id="dropZone" role="button" tabindex="0" aria-label="Drop a MIDI or MP3, or import a YouTube link">
+        <span>Drop a MIDI or MP3</span>
+        <small id="sourceName">or click to choose a file</small>
+        <em id="processingText">MIDI uses exact notes. MP3 uses Spotify Basic Pitch.</em>
+        <form class="urlImport" id="youtubeForm">
+          <input id="youtubeUrl" type="url" inputmode="url" autocomplete="off" placeholder="or paste a YouTube link" aria-label="YouTube URL" />
+          <label class="rightsCheck" for="youtubeRights">
+            <input id="youtubeRights" type="checkbox" />
+            <b>I have rights or permission to process this media</b>
+          </label>
+          <button id="youtubeImportBtn" type="submit">import audio</button>
+        </form>
+        <i class="processingBar" aria-hidden="true"><b></b></i>
+      </div>
+      <p class="sourceCredit">
+        MP3 transcription: <a href="https://github.com/spotify/basic-pitch" rel="noreferrer" target="_blank">Spotify Basic Pitch</a>, Apache-2.0.
+        URL import: <a href="https://github.com/yt-dlp/yt-dlp" rel="noreferrer" target="_blank">yt-dlp</a> + ffmpeg, temporary/no storage.
+        Sample: <a href="https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=2206" rel="noreferrer" target="_blank">Mutopia Project</a>,
+        <a href="https://www.mutopiaproject.org/legal.html" rel="noreferrer" target="_blank">Public Domain</a>.
+      </p>
+    </section>
+
+    <div class="hiddenControls" aria-hidden="true">
+      <input id="midiFile" type="file" accept=".mid,.midi,.mp3,audio/midi,audio/mpeg" />
+      <button id="playBtn" type="button">play</button>
+      <button id="demoBtn" type="button">demo song</button>
+      <button id="sampleBtn" type="button">Bach sample</button>
+      <button id="resetBtn" type="button">reset sim</button>
+      <button id="mp3ModeBtn" type="button">MP3: high accuracy</button>
+      <button id="speedBtn" type="button">1×</button>
+      <button id="soundBtn" type="button">audio on</button>
+      <input id="gravity" type="range" min="0" max="420" step="10" value="160" />
+      <output id="gravityOut">160</output>
+      <input id="maxSpeed" type="range" min="600" max="2600" step="50" value="1550" />
+      <output id="maxSpeedOut">1550</output>
+      <div id="trackList"></div>
+      <ol id="eventLog"></ol>
+      <div id="timeline"></div>
+      <strong id="clock">0.00s</strong>
+      <span id="phase">ready</span>
+      <b id="ballCount">0</b>
+      <b id="activeBallCount">0</b>
+      <b id="noteCount">0</b>
+      <b id="hitCount">0</b>
+      <dd id="nextHit">—</dd>
+    </div>
+  </main>
+  <script type="module" src="./src/app.js?v=20260505-rhythm-arc-v1"></script>
+</body>
+</html>

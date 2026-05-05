@@ -1,0 +1,11 @@
+{
+  "name": "music-visualizer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@spotify/basic-pitch": "1.0.1"
+  }
+}
