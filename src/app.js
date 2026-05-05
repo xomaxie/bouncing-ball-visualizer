@@ -737,16 +737,17 @@ function drawBlackHole() {
     ctx.globalAlpha = alpha * (0.22 + power * 0.50);
     ctx.strokeStyle = colorWithAlpha(particle.color, 0.74);
     ctx.lineWidth = Math.max(0.45, particle.size * 0.62);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.moveTo(particle.tailX, particle.tailY);
-    ctx.lineTo(particle.x, particle.y);
+    ctx.quadraticCurveTo(
+      Number.isFinite(particle.controlX) ? particle.controlX : (particle.tailX + particle.x) * 0.5,
+      Number.isFinite(particle.controlY) ? particle.controlY : (particle.tailY + particle.y) * 0.5,
+      particle.x,
+      particle.y,
+    );
     ctx.stroke();
-
-    ctx.globalAlpha = alpha * (0.18 + power * 0.38);
-    ctx.fillStyle = colorWithAlpha(particle.color, 0.68);
-    ctx.beginPath();
-    ctx.arc(particle.x, particle.y, Math.max(0.45, particle.size * 0.86), 0, Math.PI * 2);
-    ctx.fill();
   }
 
   ctx.globalCompositeOperation = 'source-over';

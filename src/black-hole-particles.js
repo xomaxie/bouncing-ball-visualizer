@@ -165,15 +165,32 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
     const ty = Math.sin(tangentAngle) * tailLength * Number(particle.tilt || 0.42);
     const rotatedTailX = tx * cosR - ty * sinR;
     const rotatedTailY = tx * sinR + ty * cosR;
+    const x = cx + rotatedX;
+    const y = cy + rotatedY;
+    const tailX = cx + rotatedX - rotatedTailX;
+    const tailY = cy + rotatedY - rotatedTailY;
+    const chordX = x - tailX;
+    const chordY = y - tailY;
+    const chordLength = Math.max(0.001, Math.hypot(chordX, chordY));
+    const normalX = -chordY / chordLength;
+    const normalY = chordX / chordLength;
+    const swirl = Math.sign(Number(particle.angularVelocity || 1)) || 1;
+    const bend = Math.min(18, Math.max(1.25, tailLength * (0.26 + displayPower * 0.18))) * swirl;
+    const controlX = tailX + chordX * 0.58 + normalX * bend;
+    const controlY = tailY + chordY * 0.58 + normalY * bend;
 
     return {
       id: particle.id,
-      x: cx + rotatedX,
-      y: cy + rotatedY,
-      tailX: cx + rotatedX - rotatedTailX,
-      tailY: cy + rotatedY - rotatedTailY,
+      x,
+      y,
+      tailX,
+      tailY,
+      controlX,
+      controlY,
       radius,
       size: particle.size * particleSizeScale,
+      spriteRadius: 0,
+      renderMode: 'curved-streak',
       alpha: clamp(particle.alpha * alphaScale * (1.16 - Math.min(0.58, radius / (system.outerRadius * radiusScale))), 0.04, 1),
       color: particle.color,
     };

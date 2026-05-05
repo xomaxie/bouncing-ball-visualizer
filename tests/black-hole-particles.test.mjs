@@ -103,3 +103,24 @@ test('moderate impact pulses still read over already-high section energy', async
   assert.ok(withBeatPulse.length >= rollingHigh.length + 16, `beat pulses should add visible density even during high-energy sections, high=${rollingHigh.length} pulse=${withBeatPulse.length}`);
   assert.ok(maxDistanceFromCenter(withBeatPulse) > maxDistanceFromCenter(rollingHigh) * 1.18, 'beat pulses should visibly expand the black hole over the rolling high-energy baseline');
 });
+
+test('black hole particle snapshots expose curved streaks without sprite dots', async () => {
+  const { createBlackHoleParticleSystem, blackHoleParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 32, seed: 'curved-streak-test' });
+  const snapshots = blackHoleParticleSnapshots(system, blackHole, { energy: 0.72, intensity: 0.6, pulse: 0.4 });
+
+  assert.ok(snapshots.length > 0, 'expected visible particle streaks');
+  for (const particle of snapshots) {
+    assert.equal(particle.renderMode, 'curved-streak');
+    assert.equal(particle.spriteRadius, 0, 'black-hole particles should be rendered as strokes, not dot sprites');
+    assert.ok(Number.isFinite(particle.controlX), 'expected a finite bezier control point x');
+    assert.ok(Number.isFinite(particle.controlY), 'expected a finite bezier control point y');
+
+    const chordX = particle.x - particle.tailX;
+    const chordY = particle.y - particle.tailY;
+    const controlX = particle.controlX - particle.tailX;
+    const controlY = particle.controlY - particle.tailY;
+    const cross = Math.abs(chordX * controlY - chordY * controlX);
+    assert.ok(cross > 0.35, 'curve control point should bend the streak instead of falling on a straight line');
+  }
+});
