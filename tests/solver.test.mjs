@@ -306,8 +306,8 @@ test('planTrack spawns zero-time notes at the wall contact point without a visib
 test('planTrack redirects waiting-room black-hole orbit balls before spawning new helpers', () => {
   const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
   const notes = [
-    { time: 1.0, duration: 0.08, midi: 36, velocity: 0.76 },
-    { time: 4.0, duration: 0.08, midi: 36, velocity: 0.76 },
+    { time: 0.0, duration: 0.08, midi: 24, velocity: 0.76 },
+    { time: 2.5, duration: 0.08, midi: 24, velocity: 0.76 },
   ];
 
   const planned = planTrack({ id: 0, name: 'waiting-room redirect', notes }, arena, {

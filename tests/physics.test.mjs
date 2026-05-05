@@ -116,3 +116,20 @@ test('stepBallInCircle reports black-hole event-horizon captures as destruction 
   assert.ok(captures[0].distance <= blackHole.eventHorizonRadius + ball.radius + 1e-6);
   assert.equal(ball.blackHoleCaptured, true, 'captured ball should be marked so playback can destroy it');
 });
+
+test('captured black-hole balls remain destroyed during later physics prediction steps', () => {
+  const ball = createBall({ x: -16, y: 0, vx: 90, vy: 0, radius: 3 });
+  const blackHole = { enabled: true, x: 0, y: 0, strength: 1200000, softeningRadius: 20, eventHorizonRadius: 8 };
+
+  stepBallInCircle(ball, 0.3, arena, { x: 0, y: 0, blackHole }, () => {}, PLAYBACK_PHYSICS_OPTIONS);
+  assert.equal(ball.blackHoleCaptured, true, 'setup should capture the ball');
+  const capturedPosition = { x: ball.x, y: ball.y };
+
+  stepBallInCircle(ball, 0.5, arena, { x: 0, y: 0, blackHole }, () => {}, PLAYBACK_PHYSICS_OPTIONS);
+
+  assert.equal(ball.blackHoleCaptured, true, 'capture flag should remain set');
+  assert.equal(ball.x, capturedPosition.x, 'captured balls should not drift back out of the event horizon');
+  assert.equal(ball.y, capturedPosition.y, 'captured balls should not drift back out of the event horizon');
+  assert.equal(ball.vx, 0);
+  assert.equal(ball.vy, 0);
+});

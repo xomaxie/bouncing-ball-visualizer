@@ -5,7 +5,7 @@ import {
   reflectVelocity,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js?v=20260505-orbit-redirect-v1';
+} from './physics.js?v=20260505-black-hole-capture-fix-v1';
 
 const EPSILON = 1e-7;
 

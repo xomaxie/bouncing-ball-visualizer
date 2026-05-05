@@ -288,6 +288,8 @@ export function reflectVelocity(velocity, normal, restitution = 0.92, tangentRet
 }
 
 export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCollision = () => {}, options = {}) {
+  if (ball?.blackHoleCaptured) return ball;
+
   const restitution = options.restitution ?? 0.92;
   const tangentRetention = options.tangentRetention ?? 0.996;
   const drag = options.drag ?? 0.000;
