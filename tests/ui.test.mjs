@@ -146,7 +146,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-photon-dust-v1/);
+  assert.match(html, /app\.js\?v=20260505-readable-photon-dust-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -180,6 +180,14 @@ test('black-hole disc emits energy-scaled light particles using the current domi
   assert.match(app, /blackHoleLightParticleCount/);
 });
 
+
+
+test('Pixi black-hole light layer preserves the drawing buffer so particles stay visible between frames', async () => {
+  const { pixiLayer } = await projectFiles();
+
+  assert.match(pixiLayer, /preserveDrawingBuffer:\s*true/);
+  assert.match(pixiLayer, /Photon dust should read as a dense luminous point field/);
+});
 
 test('black-hole disc light requires the PixiJS library layer instead of hand-drawn fallbacks or light sprites', async () => {
   const { app, pkg, pixiLayer } = await projectFiles();

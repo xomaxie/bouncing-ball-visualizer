@@ -17,8 +17,8 @@ import {
   blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-photon-dust-v1';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-photon-dust-v1';
+} from './black-hole-particles.js?v=20260505-readable-photon-dust-v1';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-readable-photon-dust-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 

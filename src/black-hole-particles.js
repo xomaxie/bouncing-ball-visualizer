@@ -227,8 +227,8 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
   const discScale = 0.82 + energyLevel * 0.16 + emissionPower * 0.50 + pulse * 0.14;
-  const alphaScale = 0.080 + emissionPower * 0.30 + dominantEnergy * 0.10;
-  const streakScale = 0.38 + emissionPower * 0.22 + dominantEnergy * 0.10;
+  const alphaScale = 0.130 + emissionPower * 0.43 + dominantEnergy * 0.13;
+  const streakScale = 0.30 + emissionPower * 0.12 + dominantEnergy * 0.06;
 
   return system.particles.map((particle, index) => {
     const visibility = softParticleVisibility(index, system.particles.length, visibleCount / Math.max(1, system.particles.length), 0.11);
@@ -241,7 +241,7 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
     const x = cx + localX * cosR - localY * sinR;
     const y = cy + localX * sinR + localY * cosR;
 
-    const radialLength = (0.42 + particle.size * 0.34 + unit * 0.54) * streakScale;
+    const radialLength = (0.36 + particle.size * 0.20 + unit * 0.36) * streakScale;
     const radialX = Math.cos(angle) * radialLength;
     const radialY = Math.sin(angle) * radialLength * Number(particle.tilt || 0.42);
     const tangentX = Math.cos(angle + Math.PI / 2) * radialLength * (0.10 + emissionPower * 0.055);
@@ -265,10 +265,10 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
       controlX,
       controlY,
       radius: baseRadius,
-      glowRadius: (0.38 + particle.size * 0.22 + unit * 0.34) * (0.62 + emissionPower * 0.56),
-      pointRadius: (0.16 + particle.size * 0.12 + unit * 0.16) * (0.78 + emissionPower * 0.18),
-      lineWidth: (0.038 + particle.size * 0.032) * (0.78 + emissionPower * 0.20),
-      alpha: clamp(baseAlpha, 0, 0.58),
+      glowRadius: (1.03 + particle.size * 0.35 + unit * 0.40) * (0.90 + emissionPower * 0.49),
+      pointRadius: (0.40 + particle.size * 0.15 + unit * 0.17) * (0.96 + emissionPower * 0.16),
+      lineWidth: 0,
+      alpha: clamp(baseAlpha, 0, 0.74),
       visibility,
       color: dominantColor,
       spriteRadius: 0,

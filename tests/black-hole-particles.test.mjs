@@ -184,6 +184,27 @@ test('black hole disc uses a high-count field of smaller light particles', async
 });
 
 
+test('high-energy photon dust has enough luminous footprint to read as particles', async () => {
+  const { createBlackHoleParticleSystem, blackHoleLightParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 1120, seed: 'luminous-footprint-test' });
+
+  const surge = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.9, intensity: 0.76, pulse: 0.62 }, {
+    color: '#ff66cc',
+    colorEnergy: 0.94,
+  });
+  const visible = surge.filter((particle) => particle.alpha > 0.045);
+  const average = (values) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const segmentLengths = visible.map((particle) => Math.hypot(particle.x - particle.tailX, particle.y - particle.tailY));
+
+  assert.ok(visible.length >= 850, `high-energy sections should keep a dense visible dust cloud, got ${visible.length}`);
+  assert.ok(average(visible.map((particle) => particle.alpha)) >= 0.24, `photon dust alpha should be readable, got ${average(visible.map((particle) => particle.alpha))}`);
+  assert.ok(average(visible.map((particle) => particle.pointRadius)) >= 0.58, `photon dust point radius should not be subpixel-invisible, got ${average(visible.map((particle) => particle.pointRadius))}`);
+  assert.ok(average(visible.map((particle) => particle.glowRadius)) >= 1.75, `photon dust glow should have a visible luminous footprint, got ${average(visible.map((particle) => particle.glowRadius))}`);
+  assert.ok(Math.max(...visible.map((particle) => particle.pointRadius)) <= 1.25, 'individual points should stay small enough to avoid sprite blobs');
+  assert.ok(Math.max(...segmentLengths) < 0.7, `photon dust should remain dot-like instead of wormy, got segment ${Math.max(...segmentLengths)}`);
+});
+
+
 test('black hole particle snapshots keep stable identities and fade visibility instead of popping counts', async () => {
   const { createBlackHoleParticleSystem, blackHoleParticleSnapshots, blackHoleLightParticleSnapshots } = await loadParticleModule();
   const system = createBlackHoleParticleSystem(blackHole, { count: 64, seed: 'soft-visibility-test' });

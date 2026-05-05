@@ -64,7 +64,7 @@ function setFxCanvasStyle(canvas) {
 }
 
 function drawPhotonDust(graphic, particle, color, power, { soft = false } = {}) {
-  const alpha = clamp(particle.alpha) * (soft ? (0.20 + power * 0.10) : (0.56 + power * 0.16));
+  const alpha = clamp(particle.alpha) * (soft ? (0.30 + power * 0.14) : (0.78 + power * 0.18));
   if (alpha <= 0.006) {
     graphic.visible = false;
     return;
@@ -73,26 +73,14 @@ function drawPhotonDust(graphic, particle, color, power, { soft = false } = {}) 
   graphic.visible = true;
   graphic.clear();
   graphic.blendMode = 'add';
-  const radius = Math.max(0.12, Number(particle.pointRadius || 0.32)) * (soft ? (2.0 + power * 0.38) : (0.76 + power * 0.08));
+  const radius = Math.max(0.18, Number(particle.pointRadius || 0.48)) * (soft ? (3.15 + power * 0.72) : (1.05 + power * 0.20));
   graphic.circle(particle.x, particle.y, radius);
   graphic.fill({
     color,
-    alpha: Math.min(0.72, alpha),
+    alpha: Math.min(0.86, alpha),
   });
 
-  const glintLength = Math.hypot((particle.x || 0) - (particle.tailX || particle.x || 0), (particle.y || 0) - (particle.tailY || particle.y || 0));
-  if (!soft && glintLength > 0.18) {
-    const width = Math.max(0.035, Number(particle.lineWidth || 0.06)) * (0.78 + power * 0.08);
-    graphic.moveTo(particle.tailX, particle.tailY);
-    graphic.lineTo(particle.x, particle.y);
-    graphic.stroke({
-      color,
-      alpha: Math.min(0.42, alpha * 0.58),
-      width,
-      cap: 'round',
-      join: 'round',
-    });
-  }
+  // Photon dust should read as a dense luminous point field, not as worm-like trails.
 }
 
 export async function createPixiLightParticleLayer({ host, width = 1, height = 1, dpr = 1, maxParticles = 220 } = {}) {
@@ -106,6 +94,7 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
     autoDensity: true,
     antialias: true,
     backgroundAlpha: 0,
+    preserveDrawingBuffer: true,
     preference: 'webgl',
   });
   app.ticker.stop();
