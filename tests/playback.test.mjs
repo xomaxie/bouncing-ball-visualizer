@@ -143,6 +143,62 @@ test('advancePlayback retires one-shot helper balls on their next natural bounce
   assert.equal(ball.retired, true, 'final-use helper ball should be marked retired after that bounce');
 });
 
+
+
+test('final-use balls park in a decaying black-hole orbit before being destroyed', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 14 };
+  const segment = {
+    id: 'orbit:0',
+    ballId: 'orbit-ball',
+    trackId: 0,
+    trackName: 'orbit test',
+    target: { x: arena.cx + arena.radius, y: arena.cy },
+    centerTarget: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    start: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    launchTime: 0,
+    arrivalTime: 0,
+    duration: 0,
+    velocity: { x: 360, y: -80 },
+    gravityY: 0,
+    wallColor: '#fff',
+    note: { time: 0, midi: 60, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'orbit-ball', events: [segment] }], segments: [segment] }],
+    events: [segment],
+    duration: 1,
+    options: { ballRadius: 8, gravityY: 0, blackHole },
+    blackHole,
+  };
+  const sim = createPlaybackState(plan, arena);
+
+  advancePlayback(sim, plan, arena, 0.001);
+  const ball = sim.balls.get(segment.ballId);
+  assert.equal(ball.retireOnNextCollision, true, 'final note hit should arm the post-bounce parking behavior');
+
+  while (sim.time < 4 && !ball.blackHoleOrbit) {
+    advancePlayback(sim, plan, arena, 1 / 120);
+  }
+
+  assert.equal(ball.spawned, true, 'parked ball should remain visible while orbiting the black hole');
+  assert.equal(ball.retired, false, 'parked ball should not immediately despawn');
+  assert.equal(ball.blackHoleOrbit.active, true, 'post-final-bounce ball should enter the black-hole waiting room');
+  const firstRadius = Math.hypot(ball.x - blackHole.x, ball.y - blackHole.y);
+  assert.ok(firstRadius > blackHole.eventHorizonRadius + ball.radius, 'orbit should start outside the destructive event horizon');
+
+  advancePlayback(sim, plan, arena, 0.75);
+  const laterRadius = Math.hypot(ball.x - blackHole.x, ball.y - blackHole.y);
+  assert.ok(laterRadius < firstRadius, `orbit should decay inward over time: ${laterRadius} vs ${firstRadius}`);
+
+  while (sim.time < 16 && !ball.retired) {
+    advancePlayback(sim, plan, arena, 1 / 30);
+  }
+
+  assert.equal(ball.spawned, false, 'orbiting ball should finally disappear after falling into the black hole');
+  assert.equal(ball.retired, true);
+  assert.equal(ball.blackHoleDestroyed, true, 'destruction should be attributed to black-hole capture');
+});
+
 test('hitPlaybackSegment recolors a ball to the rainbow wall color it impacts', () => {
   const segment = {
     id: 'impact:0',

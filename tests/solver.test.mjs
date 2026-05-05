@@ -299,6 +299,45 @@ test('planTrack spawns zero-time notes at the wall contact point without a visib
   assert.ok(Math.abs(segment.start.y - segment.centerTarget.y) < 1e-9);
 });
 
+
+
+test('newly allocated helper balls originate from the black-hole rim when the well is enabled', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
+  const notes = Array.from({ length: 10 }, (_, index) => ({
+    time: 2 + index * 0.035,
+    duration: 0.08,
+    midi: 48 + (index % 5) * 3,
+    velocity: 0.7,
+  }));
+
+  const planned = planTrack({ id: 0, name: 'black-hole source helpers', notes }, arena, {
+    gravityY: 160,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    spawnPreferredFlightTime: 0.34,
+    maxSpeed: 1550,
+    blackHole,
+    fieldStep: 1 / 240,
+    pathSamples: 30,
+  });
+
+  const firstSegments = planned.balls.map((ball) => ball.events[0]).filter(Boolean);
+  assert.ok(firstSegments.length >= 2, `test should force multiple helper creations; got ${firstSegments.length}`);
+  for (const segment of firstSegments) {
+    if (segment.duration <= 0) continue;
+    const distanceFromHole = Math.hypot(segment.start.x - blackHole.x, segment.start.y - blackHole.y);
+    assert.equal(segment.spawnSource, 'black-hole', `${segment.id} should explicitly originate at the black-hole emitter`);
+    assert.ok(
+      distanceFromHole > blackHole.eventHorizonRadius + segment.ballRadius,
+      `${segment.id} should start outside the event horizon, distance ${distanceFromHole}`,
+    );
+    assert.ok(
+      distanceFromHole <= blackHole.eventHorizonRadius + segment.ballRadius + 8,
+      `${segment.id} should come from the black-hole rim, not a parked seed elsewhere; distance ${distanceFromHole}`,
+    );
+  }
+});
+
 test('planTrack launches newly spawned helper balls just in time instead of parking them early', () => {
   const notes = Array.from({ length: 12 }, (_, index) => ({
     time: 2 + index * 0.035,

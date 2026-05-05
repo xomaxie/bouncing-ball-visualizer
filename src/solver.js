@@ -16,7 +16,7 @@ import {
   simulateFieldState,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js';
+} from './physics.js?v=20260505-black-hole-waiting-room-v1';
 
 export const DEFAULT_SOLVER_OPTIONS = {
   ballRadius: 8,
@@ -43,6 +43,7 @@ export const DEFAULT_SOLVER_OPTIONS = {
   spawnPreferredFlightTime: 0.32,
   spawnMaxFlightTime: 0.42,
   spawnVisibilityPenalty: 1100,
+  blackHoleEmitterMargin: 2.5,
   reusableCandidateLimit: 18,
   recycleFallbackCandidateLimit: 48,
   recycleFallbackMinGap: 0.6,
@@ -207,6 +208,29 @@ function wallNormal(point, arena) {
 
 function clonePoint(point) {
   return { x: point.x, y: point.y };
+}
+
+function cloneSpawnPoint(point) {
+  const cloned = clonePoint(point);
+  if (point?.spawnSource) cloned.spawnSource = point.spawnSource;
+  return cloned;
+}
+
+function blackHoleEmitterPoints(wallTarget, arena, options = {}) {
+  const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
+  const blackHole = activeBlackHole(opts);
+  if (!blackHole || blackHole.eventHorizonRadius <= 0) return [];
+  const dx = wallTarget.x - blackHole.x;
+  const dy = wallTarget.y - blackHole.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const baseAngle = Math.atan2(dy, dx);
+  const rimRadius = blackHole.eventHorizonRadius + opts.ballRadius + Math.max(0.5, Number(opts.blackHoleEmitterMargin ?? 2.5));
+  const offsets = [0, 0.32, -0.32];
+  return offsets.map((offset) => ({
+    x: blackHole.x + Math.cos(baseAngle + offset) * rimRadius,
+    y: blackHole.y + Math.sin(baseAngle + offset) * rimRadius,
+    spawnSource: 'black-hole',
+  })).filter((point) => Math.hypot(point.x - arena.cx, point.y - arena.cy) < arena.radius - opts.ballRadius);
 }
 
 function predictStateAt(state, targetTime, arena, options) {
@@ -441,11 +465,22 @@ function spawnFlightCandidates(seed, wallTarget, target, noteTime, arena, option
   const maxDuration = Math.max(0, noteTime);
   const spawnPreferred = Math.max(opts.minFlightTime, opts.spawnPreferredFlightTime ?? opts.minFlightTime);
   const spawnMax = Math.max(spawnPreferred, opts.spawnMaxFlightTime ?? spawnPreferred);
+  const hasBlackHole = Boolean(activeBlackHole(opts));
+  const stagedPoints = hasBlackHole
+    ? [
+      seed,
+      insetPoint(wallTarget, arena, Math.min(arena.radius - opts.ballRadius, opts.ballRadius + arena.radius * 0.28)),
+      insetPoint(wallTarget, arena, Math.min(arena.radius - opts.ballRadius, opts.ballRadius + arena.radius * 0.48)),
+    ]
+    : [
+      seed,
+      { x: arena.cx, y: arena.cy },
+      insetPoint(wallTarget, arena, Math.min(arena.radius - opts.ballRadius, opts.ballRadius + arena.radius * 0.28)),
+      insetPoint(wallTarget, arena, Math.min(arena.radius - opts.ballRadius, opts.ballRadius + arena.radius * 0.48)),
+    ];
   const startPoints = uniquePoints([
-    seed,
-    { x: arena.cx, y: arena.cy },
-    insetPoint(wallTarget, arena, Math.min(arena.radius - opts.ballRadius, opts.ballRadius + arena.radius * 0.28)),
-    insetPoint(wallTarget, arena, Math.min(arena.radius - opts.ballRadius, opts.ballRadius + arena.radius * 0.48)),
+    ...blackHoleEmitterPoints(wallTarget, arena, opts),
+    ...stagedPoints,
   ]);
 
   if (maxDuration >= opts.minFlightTime) {
@@ -463,10 +498,15 @@ function spawnFlightCandidates(seed, wallTarget, target, noteTime, arena, option
         if (!flight.feasible) continue;
         if (!pathFitsArena(start, flight.velocity, flight.duration, arena, opts)) continue;
         const longLoiterPenalty = Math.max(0, flight.duration - spawnMax) * opts.maxSpeed * 8;
+        const spawnSource = start.spawnSource || (start === seed ? 'seed' : 'staged');
+        const sourcePenalty = spawnSource === 'black-hole'
+          ? -160
+          : hasBlackHole ? 260 : (start === seed ? 0 : 45);
         candidates.push({
-          start: clonePoint(start),
+          start: cloneSpawnPoint(start),
+          spawnSource,
           flight,
-          score: flight.speed * 0.55 + flight.duration * opts.spawnVisibilityPenalty + longLoiterPenalty + (start === seed ? 0 : 45),
+          score: flight.speed * 0.55 + flight.duration * opts.spawnVisibilityPenalty + longLoiterPenalty + sourcePenalty,
         });
       }
     }
@@ -475,6 +515,7 @@ function spawnFlightCandidates(seed, wallTarget, target, noteTime, arena, option
   const zeroFlight = planFlight(target, target, noteTime, noteTime, opts);
   candidates.push({
     start: clonePoint(target),
+    spawnSource: 'target',
     flight: zeroFlight,
     score: opts.maxSpeed * 4,
   });
@@ -664,7 +705,7 @@ export function planTrack(track, arena, options = {}) {
       for (const wallTarget of targetCandidates) {
         const target = insetPoint(wallTarget, arena, noteOpts.ballRadius);
         for (const spawn of spawnFlightCandidates(seed, wallTarget, target, note.time, arena, noteOpts)) {
-          const candidate = { ball, wallTarget, target, start: spawn.start, flight: spawn.flight, score: spawn.score };
+          const candidate = { ball, wallTarget, target, start: spawn.start, flight: spawn.flight, spawnSource: spawn.spawnSource, score: spawn.score };
           if (!best || candidate.score < best.score) best = candidate;
         }
       }
@@ -694,6 +735,7 @@ export function planTrack(track, arena, options = {}) {
       blackHole: best.flight.gravity?.blackHole || noteOpts.blackHole || null,
       flightField: best.flight.field || 'ballistic',
       missDistance: best.flight.missDistance || 0,
+      spawnSource: best.spawnSource || (best.ball.events.length ? 'reuse' : 'unknown'),
       idleGravityY: trackOpts.gravityY || 0,
       ballRadius: noteOpts.ballRadius,
       personality,

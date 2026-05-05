@@ -99,3 +99,20 @@ test('fieldPathSamples bends a flight around a black hole using the real acceler
     'black-hole field should bend the path rather than using a straight fake trajectory',
   );
 });
+
+
+test('stepBallInCircle reports black-hole event-horizon captures as destruction events', () => {
+  const ball = createBall({ x: -16, y: 0, vx: 90, vy: 0, radius: 3 });
+  const captures = [];
+  const blackHole = { enabled: true, x: 0, y: 0, strength: 0, softeningRadius: 20, eventHorizonRadius: 8 };
+
+  stepBallInCircle(ball, 0.3, arena, { x: 0, y: 0, blackHole }, () => {}, {
+    ...PLAYBACK_PHYSICS_OPTIONS,
+    onBlackHoleCapture: (capture) => captures.push(capture),
+  });
+
+  assert.equal(captures.length, 1, 'crossing the event horizon should emit one capture event');
+  assert.equal(captures[0].ball, ball);
+  assert.ok(captures[0].distance <= blackHole.eventHorizonRadius + ball.radius + 1e-6);
+  assert.equal(ball.blackHoleCaptured, true, 'captured ball should be marked so playback can destroy it');
+});

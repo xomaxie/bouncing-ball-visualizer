@@ -49,6 +49,32 @@ export function accelerationAtPoint(point, gravity = { x: 0, y: 0 }) {
   };
 }
 
+function blackHoleCaptureRadius(ball, blackHole) {
+  return Math.max(0, Number(blackHole?.eventHorizonRadius || 0)) + Math.max(0, Number(ball?.radius || 0));
+}
+
+function checkBlackHoleCapture(ball, blackHole, onCapture = null) {
+  if (!ball || !blackHole || blackHole.eventHorizonRadius <= 0 || ball.blackHoleCaptured) return false;
+  const dx = ball.x - blackHole.x;
+  const dy = ball.y - blackHole.y;
+  const distance = Math.hypot(dx, dy);
+  const captureRadius = blackHoleCaptureRadius(ball, blackHole);
+  if (distance > captureRadius) return false;
+
+  ball.blackHoleCaptured = true;
+  ball.vx = 0;
+  ball.vy = 0;
+  onCapture?.({
+    ball,
+    blackHole,
+    x: ball.x,
+    y: ball.y,
+    distance,
+    captureRadius,
+  });
+  return true;
+}
+
 function fieldStepSize(duration, options = {}) {
   const requested = Number(options.fieldStep ?? options.maxFieldStep ?? 1 / 180);
   const maxStep = Number.isFinite(requested) && requested > 0 ? requested : 1 / 180;
@@ -133,6 +159,9 @@ export function createBall({ id = '', x = 0, y = 0, vx = 0, vy = 0, radius = 7, 
     spawned: true,
     retired: false,
     retireOnNextCollision: false,
+    blackHoleOrbit: null,
+    blackHoleCaptured: false,
+    blackHoleDestroyed: false,
   };
 }
 
@@ -157,6 +186,9 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
   const tangentRetention = options.tangentRetention ?? 0.996;
   const drag = options.drag ?? 0.000;
   const blackHole = activeBlackHole(gravity) || activeBlackHole(options);
+  const onBlackHoleCapture = typeof options.onBlackHoleCapture === 'function' ? options.onBlackHoleCapture : null;
+
+  if (blackHole && checkBlackHoleCapture(ball, blackHole, onBlackHoleCapture)) return ball;
 
   if (blackHole && dt > 0) {
     const maxStep = fieldStepSize(dt, options);
@@ -165,8 +197,9 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
     while (elapsed < dt - 1e-12 && guard < 10000) {
       guard += 1;
       const subDt = Math.min(maxStep, dt - elapsed);
-      integrateBallStepInCircle(ball, subDt, arena, { ...gravity, blackHole }, onCollision, { restitution, tangentRetention, drag });
+      integrateBallStepInCircle(ball, subDt, arena, { ...gravity, blackHole }, onCollision, { restitution, tangentRetention, drag, onBlackHoleCapture });
       elapsed += subDt;
+      if (ball.blackHoleCaptured) break;
     }
     return ball;
   }
@@ -178,6 +211,7 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
   ball.vx += ax * dt;
   ball.vy += ay * dt;
   applyDrag(ball, dt, drag);
+  if (blackHole && checkBlackHoleCapture(ball, blackHole, onBlackHoleCapture)) return ball;
   resolveCircleCollision(ball, arena, onCollision, restitution, tangentRetention);
 
   return ball;
@@ -219,6 +253,8 @@ function resolveCircleCollision(ball, arena, onCollision, restitution, tangentRe
 function integrateBallStepInCircle(ball, dt, arena, gravity, onCollision, options) {
   integrateFieldStep(ball, dt, gravity);
   applyDrag(ball, dt, options.drag);
+  const blackHole = activeBlackHole(gravity);
+  if (blackHole && checkBlackHoleCapture(ball, blackHole, options.onBlackHoleCapture)) return ball;
   resolveCircleCollision(ball, arena, onCollision, options.restitution, options.tangentRetention);
   return ball;
 }

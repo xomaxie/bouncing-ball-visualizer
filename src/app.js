@@ -6,12 +6,12 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-perceptual-black-hole-energy-v1';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260504-personality-v1';
+import { planSong } from './solver.js?v=20260505-black-hole-waiting-room-v1';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-black-hole-waiting-room-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-perceptual-black-hole-energy-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-black-hole-waiting-room-v1';
 import {
   advanceBlackHoleParticles,
   blackHoleLightParticleSnapshots,
@@ -839,17 +839,7 @@ function drawBlackHole() {
   ctx.arc(blackHole.x, blackHole.y, horizon * 1.34, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = `rgba(232,238,255,${0.08 + pulse * 0.035 + power * 0.11})`;
-  ctx.lineWidth = 1.05;
-  ctx.beginPath();
-  ctx.arc(blackHole.x, blackHole.y, horizon * (1.08 + pulse * 0.025), 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.strokeStyle = `rgba(119,167,255,${0.028 + pulse * 0.026 + power * 0.12})`;
-  ctx.lineWidth = 0.55 + power * 0.65;
-  ctx.beginPath();
-  ctx.ellipse(blackHole.x, blackHole.y, radius * 4.6, radius * 1.42, -0.22, 0, Math.PI * 2);
-  ctx.stroke();
+  // No outer ring: the black-hole read should come from particles and captured balls, not a static outline.
   ctx.restore();
 }
 
@@ -1024,6 +1014,8 @@ window.MusicVisualizerDebug = {
     totalBalls: plan?.totalBalls ?? 0,
     activeBalls: activeBallCount(),
     retiredBalls: sim ? [...sim.balls.values()].filter((ball) => ball.retired).length : 0,
+    orbitingBalls: sim ? [...sim.balls.values()].filter((ball) => ball.blackHoleOrbit?.active).length : 0,
+    blackHoleDestroyedBalls: sim ? [...sim.balls.values()].filter((ball) => ball.blackHoleDestroyed).length : 0,
     spawnedBalls: sim ? [...sim.balls.values()].filter((ball) => ball.spawned).length : 0,
     notes: plan?.events.length ?? 0,
     hits: hitCounter,
@@ -1040,6 +1032,7 @@ window.MusicVisualizerDebug = {
     pitchRange: plan?.pitchRange ?? null,
     blackHole: plan?.blackHole ?? null,
     blackHoleSegments: plan?.events?.filter((segment) => segment.flightField === 'black-hole').length ?? 0,
+    blackHoleSourceSegments: plan?.events?.filter((segment) => segment.spawnSource === 'black-hole').length ?? 0,
     maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
     blackHoleBendPx: blackHoleBendStats(),
     blackHoleParticleCount: blackHoleParticleSystem?.particles?.length ?? 0,
