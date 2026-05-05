@@ -65,27 +65,9 @@ function setFxCanvasStyle(canvas) {
   });
 }
 
-function drawLightMote(graphic, particle, color, power) {
-  const alpha = clamp(particle.alpha) * (0.64 + power * 0.28);
-  if (alpha <= 0.012) {
-    graphic.visible = false;
-    return;
-  }
-
-  const glowRadius = Math.max(1.8, Number(particle.glowRadius || 5));
-  const coreRadius = Math.max(0.45, Number(particle.lineWidth || 0.75) * (1.15 + power * 0.28));
-  graphic.visible = true;
-  graphic.clear();
-  graphic.blendMode = 'add';
-  graphic.circle(particle.x, particle.y, glowRadius * (0.72 + power * 0.18));
-  graphic.fill({ color, alpha: alpha * 0.22 });
-  graphic.circle(particle.x, particle.y, coreRadius);
-  graphic.fill({ color, alpha: Math.min(0.72, alpha * 0.58) });
-}
-
-function drawLightStreak(graphic, particle, color, power) {
-  const alpha = clamp(particle.alpha) * (0.74 + power * 0.26);
-  if (alpha <= 0.012) {
+function drawLightStreak(graphic, particle, color, power, { soft = false } = {}) {
+  const alpha = clamp(particle.alpha) * (soft ? (0.18 + power * 0.10) : (0.44 + power * 0.16));
+  if (alpha <= 0.006) {
     graphic.visible = false;
     return;
   }
@@ -93,6 +75,7 @@ function drawLightStreak(graphic, particle, color, power) {
   graphic.visible = true;
   graphic.clear();
   graphic.blendMode = 'add';
+  const width = Math.max(0.08, Number(particle.lineWidth || 0.22)) * (soft ? (2.7 + power * 0.55) : (0.92 + power * 0.08));
   graphic.moveTo(particle.tailX, particle.tailY);
   graphic.quadraticCurveTo(
     Number.isFinite(particle.controlX) ? particle.controlX : (particle.tailX + particle.x) * 0.5,
@@ -103,8 +86,8 @@ function drawLightStreak(graphic, particle, color, power) {
   );
   graphic.stroke({
     color,
-    alpha: Math.min(0.94, alpha),
-    width: Math.max(0.45, Number(particle.lineWidth || 0.8) * (1 + power * 0.18)),
+    alpha: Math.min(0.78, alpha),
+    width,
     cap: 'round',
     join: 'round',
   });
@@ -132,22 +115,22 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
   const streakContainer = new PIXI.Container();
   glowContainer.blendMode = 'add';
   streakContainer.blendMode = 'add';
-  glowContainer.filters = [new PIXI.BlurFilter({ strength: 4, quality: 4 })];
+  glowContainer.filters = [new PIXI.BlurFilter({ strength: 2.2, quality: 4 })];
   glowContainer.mask = mask;
   streakContainer.mask = mask;
   app.stage.addChild(mask, glowContainer, streakContainer);
 
-  const count = Math.max(16, Math.min(360, Math.round(Number(maxParticles) || 220)));
-  const motes = [];
+  const count = Math.max(16, Math.min(900, Math.round(Number(maxParticles) || 520)));
+  const softStreaks = [];
   const streaks = [];
   for (let index = 0; index < count; index += 1) {
-    const mote = new PIXI.Graphics();
+    const softStreak = new PIXI.Graphics();
     const streak = new PIXI.Graphics();
-    mote.visible = false;
+    softStreak.visible = false;
     streak.visible = false;
-    motes.push(mote);
+    softStreaks.push(softStreak);
     streaks.push(streak);
-    glowContainer.addChild(mote);
+    glowContainer.addChild(softStreak);
     streakContainer.addChild(streak);
   }
 
@@ -172,16 +155,16 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
       mask.fill({ color: 0xffffff, alpha: 1 });
     }
 
-    const visible = particles.filter((particle) => Number(particle?.alpha || 0) > 0.012).slice(0, count);
+    const visible = particles.filter((particle) => Number(particle?.alpha || 0) > 0.006).slice(0, count);
     for (let index = 0; index < count; index += 1) {
       const particle = visible[index];
       if (!particle) {
-        motes[index].visible = false;
+        softStreaks[index].visible = false;
         streaks[index].visible = false;
         continue;
       }
       const color = colorToHex(particle.color);
-      drawLightMote(motes[index], particle, color, safePower);
+      drawLightStreak(softStreaks[index], particle, color, safePower, { soft: true });
       drawLightStreak(streaks[index], particle, color, safePower);
     }
     app.renderer.render(app.stage);
@@ -189,7 +172,7 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
   }
 
   function clear() {
-    for (const graphic of motes) graphic.visible = false;
+    for (const graphic of softStreaks) graphic.visible = false;
     for (const graphic of streaks) graphic.visible = false;
     app.renderer.render(app.stage);
   }

@@ -17,8 +17,8 @@ import {
   blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-pixi-lightfield-v2';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-pixi-lightfield-v2';
+} from './black-hole-particles.js?v=20260505-fine-pixi-lightfield-v1';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-fine-pixi-lightfield-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 
@@ -83,7 +83,6 @@ let blackHoleParticleSystem = null;
 let blackHoleParticleKey = '';
 let pixiLightLayer = null;
 let pixiLightLayerPromise = null;
-let pixiLightLayerFailed = false;
 let currentSceneMode = sceneModeForEnergy();
 let smoothedBlackHoleEnergy = null;
 const lightBufferScale = 0.36;
@@ -211,7 +210,7 @@ function ensureBlackHoleParticleSystem() {
   }
   const key = blackHoleSystemKey(blackHole);
   if (!blackHoleParticleSystem || blackHoleParticleKey !== key) {
-    blackHoleParticleSystem = createBlackHoleParticleSystem(blackHole, { count: 180, seed: key });
+    blackHoleParticleSystem = createBlackHoleParticleSystem(blackHole, { count: 520, seed: key });
     blackHoleParticleKey = key;
   }
   return blackHoleParticleSystem;
@@ -759,13 +758,13 @@ function drawWall() {
 
 function ensurePixiLightLayer() {
   if (pixiLightLayer?.ready) return pixiLightLayer;
-  if (pixiLightLayerFailed || pixiLightLayerPromise || !canvasFrame) return pixiLightLayer;
+  if (pixiLightLayerPromise || !canvasFrame) return pixiLightLayer;
   pixiLightLayerPromise = createPixiLightParticleLayer({
     host: canvasFrame,
     width: W || canvasFrame.clientWidth || window.innerWidth || 1,
     height: H || canvasFrame.clientHeight || window.innerHeight || 1,
     dpr: DPR(),
-    maxParticles: 240,
+    maxParticles: 640,
   })
     .then((layer) => {
       pixiLightLayer = layer;
@@ -773,8 +772,7 @@ function ensurePixiLightLayer() {
       return layer;
     })
     .catch((error) => {
-      pixiLightLayerFailed = true;
-      console.warn('Pixi light layer unavailable; using canvas fallback', error);
+      console.error('Pixi light layer failed; black-hole lightfield requires PixiJS', error);
       return null;
     })
     .finally(() => {
@@ -813,7 +811,7 @@ function drawBlackHole() {
   ctx.clip();
   ctx.globalCompositeOperation = 'lighter';
 
-  if (!renderBlackHoleLightParticlesWithLibrary(lightParticles, power)) drawBlackHoleLightParticles(lightParticles, power);
+  renderBlackHoleLightParticlesWithLibrary(lightParticles, power);
 
   for (const particle of particles) {
     const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
@@ -852,41 +850,6 @@ function drawBlackHole() {
   ctx.beginPath();
   ctx.ellipse(blackHole.x, blackHole.y, radius * 4.6, radius * 1.42, -0.22, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.restore();
-}
-
-function drawBlackHoleLightParticles(lightParticles, power = 0) {
-  if (!lightParticles?.length) return;
-
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  for (const particle of lightParticles) {
-    if (particle.renderMode === 'disc-light-particle') {
-      const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
-      if (alpha <= 0.02) continue;
-
-      ctx.globalAlpha = alpha * (0.42 + power * 0.32);
-      ctx.strokeStyle = colorWithAlpha(particle.color, 0.84);
-      ctx.lineWidth = Math.max(0.35, Number(particle.lineWidth || 0.7));
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(particle.tailX, particle.tailY);
-      ctx.quadraticCurveTo(
-        Number.isFinite(particle.controlX) ? particle.controlX : (particle.tailX + particle.x) * 0.5,
-        Number.isFinite(particle.controlY) ? particle.controlY : (particle.tailY + particle.y) * 0.5,
-        particle.x,
-        particle.y,
-      );
-      ctx.stroke();
-
-      ctx.globalAlpha = alpha * (0.15 + power * 0.10);
-      ctx.fillStyle = colorWithAlpha(particle.color, 0.6);
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, Math.max(0.9, Number(particle.lineWidth || 0.7) * 1.5), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
   ctx.restore();
 }
 
@@ -1089,7 +1052,7 @@ window.MusicVisualizerDebug = {
     blackHolePulse: visualEffects?.blackHolePulse ?? 0,
     blackHoleDominantNoteColor: visualEffects?.dominantNoteColor ?? null,
     blackHoleDominantNoteEnergy: visualEffects?.dominantNoteEnergy ?? 0,
-    pixiLightLayer: pixiLightLayer?.kind ?? (pixiLightLayerFailed ? 'unavailable' : 'pending'),
+    pixiLightLayer: pixiLightLayer?.kind ?? (pixiLightLayerPromise ? 'loading' : 'pending'),
     blackHoleLightParticleCount: plan?.blackHole
       ? blackHoleLightParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState(), blackHoleDominantColorState()).filter((particle) => particle.alpha > 0.025).length
       : 0,

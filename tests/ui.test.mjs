@@ -146,7 +146,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-pixi-lightfield-v2/);
+  assert.match(html, /app\.js\?v=20260505-fine-pixi-lightfield-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -175,13 +175,13 @@ test('black-hole disc emits energy-scaled light particles using the current domi
   assert.match(app, /blackHoleLightParticleSnapshots/);
   assert.match(app, /dominantNoteColor/);
   assert.match(app, /dominantNoteEnergy/);
-  assert.match(app, /renderMode === 'disc-light-particle'/);
-  assert.match(app, /drawBlackHoleLightParticles/);
+  assert.match(app, /count:\s*520/);
+  assert.match(app, /maxParticles:\s*640/);
   assert.match(app, /blackHoleLightParticleCount/);
 });
 
 
-test('black-hole disc light uses a PixiJS library layer instead of hand-drawn light sprites', async () => {
+test('black-hole disc light requires the PixiJS library layer instead of hand-drawn fallbacks or light sprites', async () => {
   const { app, pkg, pixiLayer } = await projectFiles();
   const packageJson = JSON.parse(pkg);
 
@@ -189,10 +189,13 @@ test('black-hole disc light uses a PixiJS library layer instead of hand-drawn li
   assert.match(app, /pixi-light-layer\.js/);
   assert.match(app, /ensurePixiLightLayer/);
   assert.match(app, /renderBlackHoleLightParticlesWithLibrary/);
+  assert.doesNotMatch(app, /drawBlackHoleLightParticles/, 'disc light should not keep a canvas fallback renderer');
+  assert.doesNotMatch(app, /using canvas fallback|Pixi light layer unavailable/, 'this project should not silently downgrade the black-hole lightfield');
   assert.match(pixiLayer, /vendor\/pixi\/pixi\.esm\.js/);
   assert.match(pixiLayer, /new PIXI\.Application/);
   assert.match(pixiLayer, /blendMode = 'add'|blendMode: 'add'/);
   assert.match(pixiLayer, /new PIXI\.BlurFilter/);
+  assert.doesNotMatch(pixiLayer, /drawLightMote|graphic\.circle\(particle\.x/, 'Pixi light particles should be fine streaks, not dot/sprite motes');
   assert.doesNotMatch(app, /createRadialGradient\(particle\.x, particle\.y, 0, particle\.x, particle\.y, glowRadius\)/);
 });
 

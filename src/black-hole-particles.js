@@ -87,7 +87,7 @@ function resetParticle(particle, system, rng) {
 export function createBlackHoleParticleSystem(blackHole = {}, { count = 96, seed = 'black-hole' } = {}) {
   const radius = Math.max(4, Number(blackHole.radius || 10));
   const horizon = Math.max(radius * 0.95, Number(blackHole.eventHorizonRadius || radius));
-  const particleCount = Math.max(8, Math.min(220, Math.round(Number(count) || 96)));
+  const particleCount = Math.max(8, Math.min(720, Math.round(Number(count) || 96)));
   const rng = mulberry32(blackHoleSeed(blackHole, seed));
   const system = {
     radius,
@@ -217,8 +217,8 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
   const displayPower = displayPowerForEnergy(energy);
   const pulse = energyPulse(energy);
   const energyLevel = clamp(Number(energy?.energy ?? displayPower), 0, 1);
-  const emissionPower = clamp(displayPower * 0.78 + dominantEnergy * 0.42 + pulse * 0.22, 0, 1.15);
-  const visibleFraction = clamp(0.026 + emissionPower * 0.68, 0, 0.88);
+  const emissionPower = clamp(displayPower * 0.72 + dominantEnergy * 0.36 + pulse * 0.20, 0, 1.15);
+  const visibleFraction = clamp(0.055 + emissionPower * 0.72, 0, 0.94);
   const visibleCount = Math.max(0, Math.min(system.particles.length, Math.round(system.particles.length * visibleFraction)));
 
   const cx = Number(blackHole.x || 0);
@@ -226,9 +226,9 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
   const rotation = -0.22;
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
-  const discScale = 0.82 + energyLevel * 0.18 + emissionPower * 0.64 + pulse * 0.18;
-  const alphaScale = 0.18 + emissionPower * 0.64 + dominantEnergy * 0.26;
-  const glowScale = 0.92 + emissionPower * 1.18 + dominantEnergy * 0.72;
+  const discScale = 0.82 + energyLevel * 0.16 + emissionPower * 0.50 + pulse * 0.14;
+  const alphaScale = 0.095 + emissionPower * 0.34 + dominantEnergy * 0.12;
+  const streakScale = 0.74 + emissionPower * 0.58 + dominantEnergy * 0.30;
 
   return system.particles.map((particle, index) => {
     const visibility = softParticleVisibility(index, system.particles.length, visibleCount / Math.max(1, system.particles.length), 0.11);
@@ -241,17 +241,17 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
     const x = cx + localX * cosR - localY * sinR;
     const y = cy + localX * sinR + localY * cosR;
 
-    const radialLength = (6.5 + particle.size * 5.2 + unit * 10.5) * glowScale;
+    const radialLength = (3.4 + particle.size * 2.3 + unit * 4.2) * streakScale;
     const radialX = Math.cos(angle) * radialLength;
     const radialY = Math.sin(angle) * radialLength * Number(particle.tilt || 0.42);
-    const tangentX = Math.cos(angle + Math.PI / 2) * radialLength * (0.36 + emissionPower * 0.18);
-    const tangentY = Math.sin(angle + Math.PI / 2) * radialLength * Number(particle.tilt || 0.42) * (0.36 + emissionPower * 0.18);
+    const tangentX = Math.cos(angle + Math.PI / 2) * radialLength * (0.24 + emissionPower * 0.12);
+    const tangentY = Math.sin(angle + Math.PI / 2) * radialLength * Number(particle.tilt || 0.42) * (0.24 + emissionPower * 0.12);
     const tailLocalX = localX - radialX * 0.58 - tangentX * 0.35;
     const tailLocalY = localY - radialY * 0.58 - tangentY * 0.35;
     const tailX = cx + tailLocalX * cosR - tailLocalY * sinR;
     const tailY = cy + tailLocalX * sinR + tailLocalY * cosR;
-    const controlLocalX = (localX + tailLocalX) * 0.5 + tangentX * 0.58;
-    const controlLocalY = (localY + tailLocalY) * 0.5 + tangentY * 0.58;
+    const controlLocalX = (localX + tailLocalX) * 0.5 + tangentX * 0.42;
+    const controlLocalY = (localY + tailLocalY) * 0.5 + tangentY * 0.42;
     const controlX = cx + controlLocalX * cosR - controlLocalY * sinR;
     const controlY = cy + controlLocalX * sinR + controlLocalY * cosR;
     const baseAlpha = Number(particle.alpha || 0.45) * alphaScale * visibility * (0.62 + unit * 0.32);
@@ -265,9 +265,9 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
       controlX,
       controlY,
       radius: baseRadius,
-      glowRadius: (2.8 + particle.size * 3.4 + unit * 3.6) * glowScale,
-      lineWidth: (0.42 + particle.size * 0.34) * (0.9 + emissionPower * 0.75),
-      alpha: clamp(baseAlpha, 0, 0.92),
+      glowRadius: (0.72 + particle.size * 0.82 + unit * 0.92) * (0.76 + emissionPower * 0.46),
+      lineWidth: (0.12 + particle.size * 0.095) * (0.88 + emissionPower * 0.34),
+      alpha: clamp(baseAlpha, 0, 0.58),
       visibility,
       color: dominantColor,
       spriteRadius: 0,

@@ -155,6 +155,27 @@ test('black hole disc emits substantial light particles tinted by the current do
   );
 });
 
+test('black hole disc uses a high-count field of smaller light particles', async () => {
+  const { createBlackHoleParticleSystem, blackHoleLightParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 520, seed: 'fine-light-field-test' });
+
+  assert.equal(system.particles.length, 520, 'the lightfield should support many fine particles instead of a small clamped swarm');
+
+  const surge = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.91, intensity: 0.78, pulse: 0.72 }, {
+    color: '#54c7ff',
+    colorEnergy: 1,
+  });
+  const visible = surge.filter((particle) => particle.alpha > 0.018);
+  const maxLineWidth = Math.max(...visible.map((particle) => particle.lineWidth));
+  const averageLineWidth = visible.reduce((sum, particle) => sum + particle.lineWidth, 0) / visible.length;
+  const maxGlowRadius = Math.max(...visible.map((particle) => particle.glowRadius));
+
+  assert.ok(visible.length >= 330, `high-energy sections should show a dense fine-grain field, got ${visible.length}`);
+  assert.ok(averageLineWidth < 0.36, `light particles should be hairline-small on average, got ${averageLineWidth}`);
+  assert.ok(maxLineWidth < 0.72, `no individual light particle should read like a parasite-sized worm, got ${maxLineWidth}`);
+  assert.ok(maxGlowRadius < 5.8, `individual halos should stay small, got ${maxGlowRadius}`);
+});
+
 
 test('black hole particle snapshots keep stable identities and fade visibility instead of popping counts', async () => {
   const { createBlackHoleParticleSystem, blackHoleParticleSnapshots, blackHoleLightParticleSnapshots } = await loadParticleModule();
