@@ -244,10 +244,22 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
       }, {
         ...physicsOptions,
         onBlackHoleCapture: (capture) => {
+          if (ball.retireOnNextCollision && !ball.armedSegmentId) {
+            if (parkBallInBlackHoleOrbit(ball, blackHole, collisionTime)) {
+              ball.blackHoleCaptured = true;
+              ball._parkedInBlackHoleOrbitThisStep = true;
+              callbacks.onBlackHoleOrbit?.({ ball, blackHole, collision: capture, time: collisionTime, capture: true });
+              return;
+            }
+          }
           callbacks.onBlackHoleCapture?.(capture);
           destroyBallInBlackHole(ball);
         },
       });
+      if (ball._parkedInBlackHoleOrbitThisStep) {
+        ball.blackHoleCaptured = false;
+        delete ball._parkedInBlackHoleOrbitThisStep;
+      }
       elapsed += subStep;
     }
 

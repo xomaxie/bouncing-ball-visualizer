@@ -146,7 +146,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-aggressive-orbit-reuse-v1/);
+  assert.match(html, /app\.js\?v=20260505-orbit-capture-reuse-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);

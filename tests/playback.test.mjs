@@ -200,6 +200,58 @@ test('final-use balls park in a decaying black-hole orbit before being destroyed
 });
 
 
+test('final-use balls that fall into the black hole enter the waiting orbit instead of vanishing immediately', () => {
+  const localArena = { cx: 0, cy: 0, radius: 100 };
+  const blackHole = { enabled: true, x: 0, y: 0, radius: 12, strength: 0, softeningRadius: 30, eventHorizonRadius: 10 };
+  const segment = {
+    id: 'capture-orbit:0',
+    ballId: 'capture-orbit-ball',
+    trackId: 0,
+    trackName: 'capture orbit test',
+    target: { x: -localArena.radius, y: 0 },
+    centerTarget: { x: -localArena.radius + 8, y: 0 },
+    start: { x: -localArena.radius + 8, y: 0 },
+    launchTime: 0,
+    arrivalTime: 0,
+    duration: 0,
+    velocity: { x: -300, y: 0 },
+    arrivalVelocity: { x: -300, y: 0 },
+    gravityY: 0,
+    wallColor: '#fff',
+    note: { time: 0, midi: 60, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'capture-orbit-ball', events: [segment] }], segments: [segment] }],
+    events: [segment],
+    duration: 1,
+    options: { ballRadius: 8, gravityY: 0, blackHole },
+    blackHole,
+  };
+  const sim = createPlaybackState(plan, localArena);
+  const ball = sim.balls.get(segment.ballId);
+  let orbitEvents = 0;
+  let captureEvents = 0;
+
+  advancePlayback(sim, plan, localArena, 0.001, {
+    onBlackHoleOrbit: () => { orbitEvents += 1; },
+    onBlackHoleCapture: () => { captureEvents += 1; },
+  });
+  while (sim.time < 1 && !ball.blackHoleOrbit && !ball.retired) {
+    advancePlayback(sim, plan, localArena, 1 / 120, {
+      onBlackHoleOrbit: () => { orbitEvents += 1; },
+      onBlackHoleCapture: () => { captureEvents += 1; },
+    });
+  }
+
+  assert.equal(ball.spawned, true, 'waiting ball should remain visible after black-hole capture parking');
+  assert.equal(ball.retired, false, 'waiting ball should not be destroyed immediately at the event horizon');
+  assert.equal(ball.blackHoleCaptured, false, 'parking into orbit should clear the terminal capture flag');
+  assert.equal(ball.blackHoleOrbit.active, true, 'capture should become a decaying waiting-room orbit');
+  assert.equal(orbitEvents, 1);
+  assert.equal(captureEvents, 0);
+});
+
+
 
 test('advancePlayback can redirect a parked black-hole orbit ball into a later scheduled note', () => {
   const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 14 };
