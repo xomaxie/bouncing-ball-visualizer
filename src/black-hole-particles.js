@@ -39,6 +39,12 @@ function particleColor(unit) {
   return '#ff8f5c';
 }
 
+function energyIntensity(energy = {}) {
+  const rawIntensity = Number(energy?.intensity);
+  if (Number.isFinite(rawIntensity)) return clamp(rawIntensity, 0, 1);
+  return clamp(Number(energy?.energy ?? 0), 0, 1);
+}
+
 function resetParticle(particle, system, rng) {
   const inner = system.innerRadius;
   const outer = system.outerRadius;
@@ -113,16 +119,22 @@ export function advanceBlackHoleParticles(system, dt = 0, energy = {}) {
   return system;
 }
 
-export function blackHoleParticleSnapshots(system, blackHole = {}) {
+export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) {
   if (!system?.particles?.length) return [];
   const cx = Number(blackHole.x || 0);
   const cy = Number(blackHole.y || 0);
+  const intensity = energyIntensity(energy);
+  const energyLevel = clamp(Number(energy?.energy ?? intensity), 0, 1);
+  const visibleFraction = clamp(0.52 + intensity * 0.48, 0.48, 1);
+  const radiusScale = 0.92 + energyLevel * 0.08 + intensity * 0.42;
+  const alphaScale = 0.70 + intensity * 0.34;
+  const visibleCount = Math.max(8, Math.min(system.particles.length, Math.round(system.particles.length * visibleFraction)));
   const rotation = -0.22;
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
 
-  return system.particles.map((particle) => {
-    const radius = Math.max(system.innerRadius, Number(particle.orbitRadius || system.innerRadius));
+  return system.particles.slice(0, visibleCount).map((particle) => {
+    const radius = Math.max(system.innerRadius, Number(particle.orbitRadius || system.innerRadius)) * radiusScale;
     const angle = Number(particle.angle || 0);
     const wobble = Math.sin((particle.wobble || 0) + angle * 2.4) * system.radius * 0.22;
     const localX = Math.cos(angle) * radius + Math.cos(angle * 2.1) * wobble;
@@ -144,7 +156,7 @@ export function blackHoleParticleSnapshots(system, blackHole = {}) {
       tailY: cy + rotatedY - rotatedTailY,
       radius,
       size: particle.size,
-      alpha: clamp(particle.alpha * (1.16 - Math.min(0.58, radius / system.outerRadius)), 0.04, 1),
+      alpha: clamp(particle.alpha * alphaScale * (1.16 - Math.min(0.58, radius / (system.outerRadius * radiusScale))), 0.04, 1),
       color: particle.color,
     };
   });

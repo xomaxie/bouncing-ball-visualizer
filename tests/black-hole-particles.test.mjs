@@ -49,3 +49,20 @@ test('black hole particles reset instead of falling through the event horizon', 
     'particles that cross the horizon should respawn into the accretion stream',
   );
 });
+
+test('black hole accretion display grows denser and wider with song energy', async () => {
+  const { createBlackHoleParticleSystem, blackHoleParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 96, seed: 'energy-density-test' });
+
+  const calm = blackHoleParticleSnapshots(system, blackHole, { energy: 0.14, intensity: 0, level: 'low' });
+  const surge = blackHoleParticleSnapshots(system, blackHole, { energy: 0.94, intensity: 0.9, level: 'high' });
+
+  const maxDistanceFromCenter = (particles) => Math.max(
+    0,
+    ...particles.map((particle) => Math.hypot(particle.x - blackHole.x, particle.y - blackHole.y)),
+  );
+
+  assert.ok(calm.length < surge.length, `expected high-energy display to show more particles, calm=${calm.length} surge=${surge.length}`);
+  assert.ok(surge.length >= 88, `expected surge to use most of the particle system, got ${surge.length}`);
+  assert.ok(maxDistanceFromCenter(surge) > maxDistanceFromCenter(calm) * 1.16, 'high energy should make the accretion field visibly larger');
+});

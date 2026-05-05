@@ -245,6 +245,26 @@ test('planFlight solves a real black-hole assisted maneuver that reaches the tar
   );
 });
 
+test('planSong places the black-hole gravity well dead center by default', () => {
+  const plan = planSong([{
+    id: 0,
+    name: 'centered well',
+    notes: [{ time: 0.5, duration: 0.12, midi: 60, velocity: 0.7 }],
+  }], arena, {
+    gravityY: 160,
+    blackHole: {
+      enabled: true,
+      radius: 12,
+      strength: 1500000,
+      softeningRadius: 50,
+      eventHorizonRadius: 14,
+    },
+  });
+
+  assert.equal(plan.blackHole.x, arena.cx);
+  assert.equal(plan.blackHole.y, arena.cy);
+});
+
 
 test('pathFitsArena rejects paths where the ball center leaves the circle before the scheduled wall hit', () => {
   const localArena = { cx: 0, cy: 0, radius: 100 };

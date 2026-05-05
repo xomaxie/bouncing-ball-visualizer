@@ -402,7 +402,7 @@ function createPlanBlackHole(arena, options = {}) {
     : arena.cx + Number(config.offsetX ?? 0) * arena.radius;
   const y = Number.isFinite(Number(config.y))
     ? Number(config.y)
-    : arena.cy + Number(config.offsetY ?? -0.05) * arena.radius;
+    : arena.cy + Number(config.offsetY ?? 0) * arena.radius;
   return {
     enabled: true,
     x,

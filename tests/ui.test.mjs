@@ -144,7 +144,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-black-hole-particles-v1/);
+  assert.match(html, /app\.js\?v=20260505-centered-energy-black-hole-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -154,6 +154,12 @@ test('demo draws a particle-system black hole and enables stronger real field-so
   assert.match(app, /blackHoleSolveTolerancePx:\s*3\.75/);
   assert.match(app, /arena\.radius \* arena\.radius \* 92/);
   assert.match(app, /arena\.radius \* 0\.115/);
+  assert.match(app, /offsetX:\s*0/);
+  assert.match(app, /offsetY:\s*0/);
+  assert.doesNotMatch(app, /offsetX:\s*0\.055/);
+  assert.doesNotMatch(app, /offsetY:\s*-0\.06/);
+  assert.match(app, /blackHoleVisualState/);
+  assert.match(app, /blackHoleParticleSnapshots\(system, blackHole, energyState\)/);
   assert.match(app, /drawBlackHole\(\)/);
   assert.match(app, /blackHoleSegments/);
   assert.match(app, /maxBlackHoleMissDistance/);
