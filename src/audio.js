@@ -59,7 +59,7 @@ export class AudioEngine {
     this.backingEnded = false;
   }
 
-  async ensure() {
+  async ensure({ resume = true } = {}) {
     if (!this.context) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       this.context = new AudioContext();
@@ -67,7 +67,7 @@ export class AudioEngine {
       this.master.gain.value = 0.22;
       this.master.connect(this.context.destination);
     }
-    if (this.context.state === 'suspended') await this.context.resume();
+    if (resume && this.context.state === 'suspended') await this.context.resume();
   }
 
   async setEnabled(enabled) {
@@ -80,8 +80,8 @@ export class AudioEngine {
   }
 
 
-  async decodeAudioData(arrayBuffer) {
-    await this.ensure();
+  async decodeAudioData(arrayBuffer, { resume = true } = {}) {
+    await this.ensure({ resume });
     const copy = arrayBuffer.slice ? arrayBuffer.slice(0) : arrayBuffer;
     return this.context.decodeAudioData(copy);
   }

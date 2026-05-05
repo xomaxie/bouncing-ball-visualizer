@@ -38,6 +38,22 @@
       </p>
     </section>
 
+
+    <section class="libraryPanel" id="libraryPanel" aria-label="Saved music library">
+      <form id="libraryLoginForm" class="libraryLogin">
+        <input id="libraryPassphrase" type="password" autocomplete="current-password" placeholder="library key" aria-label="Library passphrase" />
+        <button id="libraryLoginBtn" type="submit">unlock</button>
+      </form>
+      <div id="libraryUnlocked" class="libraryUnlocked" hidden>
+        <div class="libraryActions">
+          <button id="saveTrackBtn" type="button">save track</button>
+          <button id="shareTrackBtn" type="button">share link</button>
+        </div>
+        <div id="libraryTrackList" class="libraryTrackList" aria-label="Saved tracks"></div>
+      </div>
+      <small id="libraryStatus">library locked</small>
+    </section>
+
     <div class="hiddenControls" aria-hidden="true">
       <input id="midiFile" type="file" accept=".mid,.midi,.mp3,audio/midi,audio/mpeg" />
       <button id="playBtn" type="button">play</button>
@@ -63,6 +79,6 @@
       <dd id="nextHit">—</dd>
     </div>
   </main>
-  <script type="module" src="./src/app.js?v=20260505-orbit-visual-v1"></script>
+  <script type="module" src="./src/app.js?v=20260505-library-storage-v1"></script>
 </body>
 </html>

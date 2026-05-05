@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -169,3 +170,49 @@ class YoutubeImportServerTest(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+class LibraryStorageServerTest(unittest.TestCase):
+  def test_library_auth_requires_configured_bearer_token(self):
+    with patch.dict('server.transcribe_api.os.environ', {'MUSIC_VISUALIZER_AUTH_TOKEN': 'secret'}, clear=False):
+      with self.assertRaises(HTTPException) as raised:
+        transcribe_api.require_library_auth(None)
+      self.assertEqual(raised.exception.status_code, 401)
+      self.assertTrue(transcribe_api.require_library_auth('Bearer secret'))
+
+  def test_library_stores_source_song_and_precomputed_plan_then_lists_it(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      with patch.dict('server.transcribe_api.os.environ', {'MUSIC_VISUALIZER_LIBRARY_DIR': tmp}, clear=False):
+        stored = transcribe_api.store_library_track(
+          title='Demo Track',
+          source_filename='demo.mid',
+          source_bytes=b'midi bytes',
+          song={'format': 'midi', 'tracks': [{'name': 'lead', 'notes': [{'time': 0, 'midi': 60}]}]},
+          plan={'totalBalls': 1, 'events': [{'id': '0:0'}], 'arena': {'cx': 500, 'cy': 500, 'radius': 390}},
+        )
+        self.assertEqual(stored['title'], 'Demo Track')
+        self.assertTrue(stored['hasSource'])
+        self.assertTrue(stored['hasPlan'])
+
+        tracks = transcribe_api.list_library_tracks()
+        self.assertEqual([track['id'] for track in tracks], [stored['id']])
+        loaded = transcribe_api.read_library_track(stored['id'])
+        self.assertEqual(loaded['song']['tracks'][0]['name'], 'lead')
+        self.assertEqual(loaded['plan']['totalBalls'], 1)
+        self.assertTrue(Path(loaded['sourcePath']).exists())
+
+  def test_library_share_token_loads_track_without_auth(self):
+    with tempfile.TemporaryDirectory() as tmp:
+      with patch.dict('server.transcribe_api.os.environ', {'MUSIC_VISUALIZER_LIBRARY_DIR': tmp}, clear=False):
+        stored = transcribe_api.store_library_track(
+          title='Share Me',
+          source_filename='share.mp3',
+          source_bytes=b'mp3 bytes',
+          song={'format': 'basic-pitch', 'tracks': []},
+          plan={'totalBalls': 0, 'events': []},
+        )
+        share = transcribe_api.create_library_share(stored['id'])
+        self.assertRegex(share['shareToken'], r'^[A-Za-z0-9_-]{18,}$')
+        shared = transcribe_api.read_shared_library_track(share['shareToken'])
+        self.assertEqual(shared['id'], stored['id'])
+        self.assertEqual(shared['title'], 'Share Me')
+        self.assertTrue(shared['audioUrl'].endswith(f"/library/share/{share['shareToken']}/audio"))

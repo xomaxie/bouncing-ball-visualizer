@@ -21,6 +21,16 @@ import {
 import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-readable-photon-dust-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
+import {
+  createShareLink,
+  getLibraryToken,
+  libraryAuthHeaders,
+  listLibraryTracks,
+  loadLibraryTrack,
+  loadSharedTrack,
+  loginToLibrary,
+  saveLibraryTrack,
+} from './library-api.js?v=20260505-library-storage-v1';
 
 const canvas = document.querySelector('#arena');
 const canvasFrame = document.querySelector('.canvasFrame');
@@ -41,6 +51,15 @@ const youtubeForm = document.querySelector('#youtubeForm');
 const youtubeUrlInput = document.querySelector('#youtubeUrl');
 const youtubeRightsInput = document.querySelector('#youtubeRights');
 const youtubeImportBtn = document.querySelector('#youtubeImportBtn');
+const libraryPanel = document.querySelector('#libraryPanel');
+const libraryLoginForm = document.querySelector('#libraryLoginForm');
+const libraryPassphraseInput = document.querySelector('#libraryPassphrase');
+const libraryLoginBtn = document.querySelector('#libraryLoginBtn');
+const libraryUnlocked = document.querySelector('#libraryUnlocked');
+const saveTrackBtn = document.querySelector('#saveTrackBtn');
+const shareTrackBtn = document.querySelector('#shareTrackBtn');
+const libraryTrackList = document.querySelector('#libraryTrackList');
+const libraryStatus = document.querySelector('#libraryStatus');
 const gravityInput = document.querySelector('#gravity');
 const gravityOut = document.querySelector('#gravityOut');
 const maxSpeedInput = document.querySelector('#maxSpeed');
@@ -55,7 +74,6 @@ const activeBallCountEl = document.querySelector('#activeBallCount');
 const noteCountEl = document.querySelector('#noteCount');
 const hitCountEl = document.querySelector('#hitCount');
 const nextHitEl = document.querySelector('#nextHit');
-
 const audio = new AudioEngine({ enabledByDefault: true });
 const DPR = () => Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 const fixedStep = 1 / 120;
@@ -65,6 +83,9 @@ let H = 0;
 let arena = { cx: 0, cy: 0, radius: 0 };
 let song = null;
 let sourceLabel = 'Drop a MIDI or MP3';
+let currentSourceFile = null;
+let currentStoredTrackId = null;
+let libraryTrackCache = [];
 let plan = null;
 let sim = null;
 let running = false;
@@ -87,6 +108,10 @@ let currentSceneMode = sceneModeForEnergy();
 let smoothedBlackHoleEnergy = null;
 const lightBufferScale = 0.36;
 const speedValues = [0.35, 1, 1.75];
+const panelRenderIntervalMs = 100;
+let lastPanelRenderAt = -Infinity;
+let lastTrackListSignature = '';
+let lastEventLogSignature = '';
 
 function playbackRate() {
   return speedValues[speedIndex];
@@ -312,12 +337,28 @@ function updateSceneMode() {
   return currentSceneMode;
 }
 
-function buildPlan() {
+function canUsePrecomputedPlan(precomputedPlan) {
+  if (!precomputedPlan?.events?.length || !precomputedPlan?.arena) return false;
+  const storedArena = precomputedPlan.arena;
+  const radiusDelta = Math.abs(Number(storedArena.radius || 0) - arena.radius);
+  const cxDelta = Math.abs(Number(storedArena.cx || 0) - arena.cx);
+  const cyDelta = Math.abs(Number(storedArena.cy || 0) - arena.cy);
+  return radiusDelta <= 2 && cxDelta <= 2 && cyDelta <= 2;
+}
+
+function cloneJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function buildPlan(precomputedPlan = null) {
+  lastTrackListSignature = '';
+  lastEventLogSignature = '';
+  lastPanelRenderAt = -Infinity;
   if (!song?.tracks?.length) {
     plan = null;
     sim = null;
     renderTimeline();
-    renderPanels();
+    renderPanels(true);
     return;
   }
   const tracks = song.tracks.map((track, index) => ({
@@ -325,19 +366,27 @@ function buildPlan() {
     id: track.id ?? index,
     color: track.color || trackColor(index),
   }));
-  plan = planSong(tracks, arena, solverOptions());
+  if (canUsePrecomputedPlan(precomputedPlan)) {
+    plan = cloneJson(precomputedPlan);
+    plan.fromStoredCache = true;
+  } else {
+    plan = planSong(tracks, arena, solverOptions());
+    plan.fromStoredCache = false;
+  }
   resetBlackHoleParticles();
   ensureBlackHoleParticleSystem();
   resetSimulation(false);
   renderTimeline();
-  renderPanels();
+  renderPanels(true);
 }
 
 function resetSimulation(redraw = true) {
   sim = createPlaybackState(plan, arena);
   hitCounter = 0;
   resetVisualEffects();
-  if (redraw) renderPanels();
+  lastEventLogSignature = '';
+  lastPanelRenderAt = -Infinity;
+  if (redraw) renderPanels(true);
 }
 
 function playbackEndTime() {
@@ -375,28 +424,33 @@ function setProcessingMessage(message) {
   if (processingText) processingText.textContent = message;
 }
 
-async function loadSong(nextSong, label) {
+async function loadSong(nextSong, label, { sourceFile = null, precomputedPlan = null, storedTrackId = null } = {}) {
   stopBackingAudio();
   song = nextSong;
   sourceLabel = label;
+  currentSourceFile = sourceFile;
+  currentStoredTrackId = storedTrackId;
   sourceName.textContent = label;
   running = false;
   playBtn.textContent = 'play';
   playBtn.classList.remove('active');
   resize();
-  buildPlan();
+  buildPlan(precomputedPlan);
   setDemoState('ready', label);
+  renderLibraryPanel();
   await queueArenaRefresh({ rebuild: true });
 }
 
-async function beginDemoPlayback({ fromStart = true } = {}) {
+async function beginDemoPlayback({ fromStart = true, armAudio = true } = {}) {
   if (!sim || !plan) return;
   if (fromStart) resetSimulation(false);
   running = true;
   playBtn.textContent = 'pause';
   playBtn.classList.add('active');
-  await audio.armIfEnabled();
-  await startBackingAudioIfNeeded();
+  if (armAudio) {
+    await audio.armIfEnabled();
+    await startBackingAudioIfNeeded();
+  }
   renderPanels();
 }
 
@@ -969,7 +1023,36 @@ function renderTimeline() {
   timeline.append(head);
 }
 
-function renderPanels() {
+function renderTrackListIfChanged() {
+  if (!trackList || !plan?.tracks) return;
+  const signature = plan.tracks
+    .map((track) => `${track.id}:${track.name}:${track.notes.length}:${track.ballCount}:${track.minMidi}:${track.maxMidi}:${track.color}`)
+    .join('|');
+  if (signature === lastTrackListSignature) return;
+  lastTrackListSignature = signature;
+  trackList.innerHTML = plan.tracks.map((track) => `
+    <div class="trackItem">
+      <i style="background:${track.color}"></i>
+      <span><strong>${escapeHtml(track.name)}</strong><small>${track.notes.length} notes · ${noteName(track.minMidi)}–${noteName(track.maxMidi)}</small></span>
+      <b>${track.ballCount}</b>
+    </div>
+  `).join('');
+}
+
+function renderEventLogIfChanged() {
+  if (!eventLog || !sim) return;
+  const signature = sim.log.map((item) => `${item.time}:${item.label}:${item.midi}:${item.color}`).join('|');
+  if (signature === lastEventLogSignature) return;
+  lastEventLogSignature = signature;
+  eventLog.innerHTML = sim.log.map((item) => `
+    <li><b style="color:${item.color}">${escapeHtml(item.label)}</b><br>${item.time.toFixed(2)}s · ${frequencyForMidi(item.midi).toFixed(1)} Hz</li>
+  `).join('') || '<li>Wall hits will appear here.</li>';
+}
+
+function renderPanels(force = false) {
+  const now = performance.now();
+  if (!force && now - lastPanelRenderAt < panelRenderIntervalMs) return;
+  lastPanelRenderAt = now;
   const state = appShell?.dataset?.state || 'empty';
   if (!plan || !sim) {
     if (sourceName && state === 'empty') sourceName.textContent = sourceLabel;
@@ -991,17 +1074,8 @@ function renderPanels() {
   const head = document.querySelector('#timelineHead');
   if (head) head.style.left = `${Math.min(100, (sim.time / Math.max(1, playbackEndTime())) * 100)}%`;
 
-  trackList.innerHTML = plan.tracks.map((track) => `
-    <div class="trackItem">
-      <i style="background:${track.color}"></i>
-      <span><strong>${escapeHtml(track.name)}</strong><small>${track.notes.length} notes · ${noteName(track.minMidi)}–${noteName(track.maxMidi)}</small></span>
-      <b>${track.ballCount}</b>
-    </div>
-  `).join('');
-
-  eventLog.innerHTML = sim.log.map((item) => `
-    <li><b style="color:${item.color}">${escapeHtml(item.label)}</b><br>${item.time.toFixed(2)}s · ${frequencyForMidi(item.midi).toFixed(1)} Hz</li>
-  `).join('') || '<li>Wall hits will appear here.</li>';
+  renderTrackListIfChanged();
+  renderEventLogIfChanged();
 }
 
 function blackHoleBendStats() {
@@ -1088,6 +1162,9 @@ window.MusicVisualizerDebug = {
     audioTimeline: audio.backingTimelineTime?.(),
     audioDuration: song?.audioBuffer?.duration ?? null,
     audioContentEnd: song?.analysis?.audioContentEndSeconds ?? null,
+    storedTrackId: currentStoredTrackId,
+    fromStoredCache: plan?.fromStoredCache ?? false,
+    libraryTrackCount: libraryTrackCache.length,
   }),
 };
 
@@ -1121,6 +1198,163 @@ function frame(now) {
   raf = requestAnimationFrame(frame);
 }
 
+
+function serializableSongForStorage() {
+  if (!song) return null;
+  const { audioBuffer: _audioBuffer, ...rest } = song;
+  return cloneJson(rest);
+}
+
+function serializablePlanForStorage() {
+  if (!plan) return null;
+  return cloneJson({ ...plan, arena: { ...arena } });
+}
+
+function setLibraryStatus(message) {
+  if (libraryStatus) libraryStatus.textContent = message;
+}
+
+function renderLibraryTrackList() {
+  if (!libraryTrackList) return;
+  if (!libraryTrackCache.length) {
+    libraryTrackList.innerHTML = '<span>No saved tracks yet.</span>';
+    return;
+  }
+  libraryTrackList.innerHTML = libraryTrackCache.map((track) => `
+    <button type="button" data-track-id="${escapeHtml(track.id)}">
+      <b>${escapeHtml(track.title || 'Untitled track')}</b>
+      <span>${Number(track.noteCount || 0)} notes · ${Number(track.ballCount || 0)} balls${track.hasPlan ? ' · cached paths' : ''}</span>
+    </button>
+  `).join('');
+}
+
+function renderLibraryPanel() {
+  if (!libraryPanel) return;
+  const unlocked = Boolean(getLibraryToken());
+  libraryPanel.classList.toggle('is-unlocked', unlocked);
+  if (libraryUnlocked) libraryUnlocked.hidden = !unlocked;
+  if (saveTrackBtn) saveTrackBtn.disabled = !unlocked || !song || !plan;
+  if (shareTrackBtn) shareTrackBtn.disabled = !unlocked || (!currentStoredTrackId && (!song || !plan));
+  if (!unlocked) setLibraryStatus('library locked');
+  else if (!libraryStatus?.textContent || libraryStatus.textContent === 'library locked') setLibraryStatus('library ready');
+  renderLibraryTrackList();
+}
+
+async function refreshLibraryTracks() {
+  if (!getLibraryToken()) {
+    libraryTrackCache = [];
+    renderLibraryPanel();
+    return;
+  }
+  const data = await listLibraryTracks();
+  libraryTrackCache = Array.isArray(data?.tracks) ? data.tracks : [];
+  setLibraryStatus(`${libraryTrackCache.length} saved track${libraryTrackCache.length === 1 ? '' : 's'}`);
+  renderLibraryPanel();
+}
+
+async function handleLibraryLogin() {
+  const passphrase = libraryPassphraseInput?.value || '';
+  if (libraryLoginBtn) libraryLoginBtn.disabled = true;
+  try {
+    await loginToLibrary({ passphrase });
+    if (libraryPassphraseInput) libraryPassphraseInput.value = '';
+    await refreshLibraryTracks();
+  } finally {
+    if (libraryLoginBtn) libraryLoginBtn.disabled = false;
+  }
+}
+
+async function ensureCurrentTrackSaved() {
+  if (currentStoredTrackId) return currentStoredTrackId;
+  const saved = await saveLibraryTrack({
+    title: sourceLabel || 'Untitled track',
+    sourceFile: currentSourceFile,
+    song: serializableSongForStorage(),
+    plan: serializablePlanForStorage(),
+  });
+  currentStoredTrackId = saved.id;
+  await refreshLibraryTracks();
+  return currentStoredTrackId;
+}
+
+async function handleSaveCurrentTrack() {
+  if (!song || !plan) throw new Error('Load a track before saving');
+  if (!getLibraryToken()) throw new Error('Unlock the library first');
+  setLibraryStatus('saving track + precomputed paths…');
+  currentStoredTrackId = null;
+  await ensureCurrentTrackSaved();
+  setLibraryStatus('track saved with cached paths');
+  renderLibraryPanel();
+}
+
+async function handleShareCurrentTrack() {
+  if (!getLibraryToken()) throw new Error('Unlock the library first');
+  setLibraryStatus('creating share link…');
+  const trackId = await ensureCurrentTrackSaved();
+  const share = await createShareLink({ trackId });
+  const absoluteUrl = new URL(share.shareUrl, window.location.origin).href;
+  try { await navigator.clipboard?.writeText?.(absoluteUrl); }
+  catch (_) { /* clipboard is optional */ }
+  setLibraryStatus(`share link ready: ${absoluteUrl}`);
+  return absoluteUrl;
+}
+
+async function fetchStoredAudioBuffer(track, { authenticated = true } = {}) {
+  if (!track?.audioUrl) return null;
+  const response = await fetch(track.audioUrl, {
+    headers: authenticated ? libraryAuthHeaders() : {},
+  });
+  if (!response.ok) throw new Error(`Could not load stored audio (${response.status})`);
+  const buffer = await response.arrayBuffer();
+  return audio.decodeAudioData(buffer, { resume: authenticated });
+}
+
+async function loadStoredTrack(track, { authenticated = true } = {}) {
+  if (!track?.song?.tracks) throw new Error('Stored track is missing song data');
+  setDemoState('processing', `Loading ${track.title || 'saved track'}…`);
+  const audioBuffer = await fetchStoredAudioBuffer(track, { authenticated });
+  const storedSong = {
+    ...track.song,
+    tracks: (track.song.tracks || []).filter((item) => (item.notes || []).length > 0),
+    audioBuffer,
+  };
+  await loadSong(storedSong, track.title || 'Saved track', {
+    sourceFile: null,
+    precomputedPlan: track.plan,
+    storedTrackId: track.id,
+  });
+  await beginDemoPlayback({ armAudio: authenticated });
+}
+
+async function loadTrackFromLibrary(trackId) {
+  const track = await loadLibraryTrack({ trackId });
+  await loadStoredTrack(track, { authenticated: true });
+}
+
+async function loadInitialShareIfPresent() {
+  const params = new URLSearchParams(window.location.search);
+  const shareToken = params.get('share');
+  if (!shareToken) return false;
+  libraryPanel?.classList.add('is-share-view');
+  setDemoState('processing', 'Loading shared track…');
+  const shared = await loadSharedTrack({ shareToken });
+  await loadStoredTrack(shared, { authenticated: false });
+  return true;
+}
+
+async function initializeLibraryAndShare() {
+  try {
+    const loadedShare = await loadInitialShareIfPresent();
+    if (!loadedShare && getLibraryToken()) await refreshLibraryTracks();
+    else renderLibraryPanel();
+  } catch (error) {
+    running = false;
+    stopBackingAudio();
+    setDemoState('empty', `Could not load library track: ${error.message}`);
+    renderLibraryPanel();
+  }
+}
+
 async function handleFile(file) {
   const name = file?.name || 'song';
   setDemoState('processing', `Reading ${name}…`);
@@ -1134,7 +1368,7 @@ async function handleFile(file) {
       const analyzed = analyzeAudioBufferToSong(audioBuffer);
       const playableTracks = analyzed.tracks.filter((track) => track.notes.length > 0);
       if (playableTracks.length === 0) throw new Error('No usable MP3 note events were inferred');
-      await loadSong({ ...analyzed, tracks: playableTracks, audioBuffer }, `${name} · fast MP3`);
+      await loadSong({ ...analyzed, tracks: playableTracks, audioBuffer }, `${name} · fast MP3`, { sourceFile: file });
       await beginDemoPlayback();
       return;
     }
@@ -1164,14 +1398,14 @@ async function handleFile(file) {
     const playableTracks = analyzed.tracks.filter((track) => track.notes.length > 0);
     if (playableTracks.length === 0) throw new Error('No usable MP3 note events were inferred');
     const mode = analyzed.format === 'basic-pitch' ? 'Basic Pitch MP3' : 'fast MP3 fallback';
-    await loadSong({ ...analyzed, tracks: playableTracks, audioBuffer }, `${name} · ${mode}`);
+    await loadSong({ ...analyzed, tracks: playableTracks, audioBuffer }, `${name} · ${mode}`, { sourceFile: file });
     await beginDemoPlayback();
     return;
   }
 
   const parsed = parseMidiFile(buffer);
   const playableTracks = parsed.tracks.filter((track) => track.notes.length > 0);
-  await loadSong({ ...parsed, tracks: playableTracks }, file.name || 'Uploaded MIDI');
+  await loadSong({ ...parsed, tracks: playableTracks }, file.name || 'Uploaded MIDI', { sourceFile: file });
   await beginDemoPlayback();
 }
 
@@ -1194,7 +1428,7 @@ async function handleBundledSample(sample = ROYALTY_FREE_SAMPLES[0]) {
   const buffer = await fetchSampleMidi(sample);
   const parsed = parseMidiFile(buffer);
   const playableTracks = parsed.tracks.filter((track) => track.notes.length > 0);
-  await loadSong({ ...parsed, tracks: playableTracks }, sampleLabel(sample));
+  await loadSong({ ...parsed, tracks: playableTracks }, sampleLabel(sample), { sourceFile: null });
 }
 
 playBtn.addEventListener('click', async () => {
@@ -1300,6 +1534,38 @@ youtubeForm?.addEventListener('submit', async (event) => {
   }
 });
 
+
+libraryLoginForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try { await handleLibraryLogin(); }
+  catch (error) { setLibraryStatus(`login failed: ${error.message}`); renderLibraryPanel(); }
+});
+
+saveTrackBtn?.addEventListener('click', async () => {
+  if (saveTrackBtn) saveTrackBtn.disabled = true;
+  try { await handleSaveCurrentTrack(); }
+  catch (error) { setLibraryStatus(`save failed: ${error.message}`); }
+  finally { renderLibraryPanel(); }
+});
+
+shareTrackBtn?.addEventListener('click', async () => {
+  if (shareTrackBtn) shareTrackBtn.disabled = true;
+  try { await handleShareCurrentTrack(); }
+  catch (error) { setLibraryStatus(`share failed: ${error.message}`); }
+  finally { renderLibraryPanel(); }
+});
+
+libraryTrackList?.addEventListener('click', async (event) => {
+  const button = event.target?.closest?.('button[data-track-id]');
+  if (!button) return;
+  try { await loadTrackFromLibrary(button.dataset.trackId); }
+  catch (error) {
+    running = false;
+    stopBackingAudio();
+    setLibraryStatus(`load failed: ${error.message}`);
+  }
+});
+
 dropZone.addEventListener('drop', async (event) => {
   const file = event.dataTransfer?.files?.[0];
   if (!file) return;
@@ -1334,6 +1600,8 @@ soundBtn.textContent = soundButtonLabel(audio.enabled);
 soundBtn.classList.toggle('active', audio.enabled);
 updateMp3ModeButton();
 setDemoState('empty');
+renderLibraryPanel();
+void initializeLibraryAndShare();
 renderTimeline();
 render();
 renderPanels();

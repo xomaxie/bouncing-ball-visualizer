@@ -146,7 +146,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-orbit-visual-v1/);
+  assert.match(html, /app\.js\?v=20260505-library-storage-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -244,4 +244,50 @@ test('source metadata remains available without visual chrome', async () => {
   assert.match(html, /https:\/\/github\.com\/spotify\/basic-pitch/);
   assert.match(html, /Mutopia Project/);
   assert.match(html, /Public Domain/);
+});
+
+test('demo includes a lightweight authenticated library panel for saved tracks and share links', async () => {
+  const { html, css, app } = await projectFiles();
+
+  assert.match(html, /id="libraryPanel"/);
+  assert.match(html, /id="libraryLoginForm"/);
+  assert.match(html, /id="libraryPassphrase"[^>]*type="password"/);
+  assert.match(html, /id="saveTrackBtn"/);
+  assert.match(html, /id="shareTrackBtn"/);
+  assert.match(html, /id="libraryTrackList"/);
+  assert.match(css, /\.libraryPanel/);
+  assert.match(app, /library-api\.js/);
+  assert.match(app, /handleLibraryLogin/);
+  assert.match(app, /handleSaveCurrentTrack/);
+  assert.match(app, /handleShareCurrentTrack/);
+});
+
+test('app can load authenticated or public shared tracks with saved precomputed plans', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /function canUsePrecomputedPlan/);
+  assert.match(app, /function loadStoredTrack/);
+  assert.match(app, /loadSharedTrack/);
+  assert.match(app, /new URLSearchParams\(window\.location\.search\)/);
+  assert.match(app, /shareToken/);
+  assert.match(app, /precomputedPlan/);
+  assert.match(app, /plan\.fromStoredCache/);
+});
+
+test('rendering pass throttles hidden DOM panel work and caches static track markup', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /const panelRenderIntervalMs/);
+  assert.match(app, /let lastPanelRenderAt/);
+  assert.match(app, /let lastTrackListSignature/);
+  assert.match(app, /function renderTrackListIfChanged/);
+  assert.match(app, /function renderEventLogIfChanged/);
+  assert.match(app, /if \(!force && now - lastPanelRenderAt < panelRenderIntervalMs\) return/);
+});
+
+test('shared track auto-load avoids Web Audio resume until a user gesture is available', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /beginDemoPlayback\(\{ armAudio: authenticated \}\)/);
+  assert.match(app, /decodeAudioData\(buffer, \{ resume: authenticated \}\)/);
 });
