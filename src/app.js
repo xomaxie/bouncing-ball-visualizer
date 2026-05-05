@@ -6,12 +6,12 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-orbit-capture-reuse-v1';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-orbit-capture-reuse-v1';
+import { planSong } from './solver.js?v=20260505-orbit-visual-v1';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-orbit-visual-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-orbit-capture-reuse-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-orbit-visual-v1';
 import {
   advanceBlackHoleParticles,
   blackHoleLightParticleSnapshots,
@@ -419,6 +419,32 @@ function decayBallLights(dt) {
   }
 }
 
+function orbitBallVisualState(ball) {
+  const orbit = ball?.blackHoleOrbit;
+  const personality = ball?.personality || {};
+  if (!orbit?.active) {
+    return {
+      bodyAlpha: 1,
+      trailAlpha: Number(personality.trailAlpha ?? 0.22),
+      lightAlpha: 1,
+      radiusScale: 1,
+    };
+  }
+
+  const progress = Math.max(0, Math.min(1, Number(ball.blackHoleOrbitProgress ?? 0)));
+  const fade = 1 - progress * 0.42;
+  const bodyAlpha = Math.max(0.10, Number(orbit.visualAlpha ?? 0.22) * fade);
+  const lightAlpha = Math.max(0.035, Number(orbit.lightAlpha ?? 0.13) * (1 - progress * 0.56));
+  const trailAlpha = Math.max(0.015, Math.min(0.075, Number(personality.trailAlpha ?? 0.22) * 0.24 * fade));
+
+  return {
+    bodyAlpha,
+    trailAlpha,
+    lightAlpha,
+    radiusScale: 0.82,
+  };
+}
+
 function recordSegmentHit({ segment, ball }) {
   if (!ball) return;
 
@@ -689,11 +715,14 @@ function drawLightSystem() {
   lightCtx.globalCompositeOperation = 'lighter';
 
   for (const ball of balls) {
+    const visual = orbitBallVisualState(ball);
+    const orbiting = Boolean(ball.blackHoleOrbit?.active);
     const speed = Math.min(1, Math.hypot(ball.vx || 0, ball.vy || 0) / 1200);
     const personalityLight = Number(ball.lightMultiplier ?? 1);
-    const energy = Math.max(0.035, Math.min(0.78, Number(ball.lightEnergy || 0.04) * sceneLight * personalityLight));
-    const radius = ball.radius * (5.8 + speed * 2.4 + energy * 4.1);
-    const core = Math.max(0.055, Math.min(0.18, 0.045 + energy * 0.095));
+    const rawEnergy = Number(ball.lightEnergy || 0.04) * sceneLight * personalityLight * visual.lightAlpha;
+    const energy = Math.max(orbiting ? 0.006 : 0.035, Math.min(0.78, rawEnergy));
+    const radius = ball.radius * (5.8 + speed * 2.4 + energy * 4.1) * (orbiting ? 0.72 : 1);
+    const core = Math.max(orbiting ? 0.010 : 0.055, Math.min(0.18, (0.045 + energy * 0.095) * visual.lightAlpha));
     const falloff = lightCtx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, radius);
     falloff.addColorStop(0, colorWithAlpha(ball.color, core));
     falloff.addColorStop(0.20, colorWithAlpha(ball.color, core * 0.42));
@@ -874,17 +903,17 @@ function drawBalls() {
     if (!ball.spawned || ball.retired) continue;
     ctx.save();
     const scene = currentSceneMode || sceneModeForEnergy();
-    const personality = ball.personality || {};
+    const visual = orbitBallVisualState(ball);
     const lightPulse = Math.max(0, Number(ball.lightEnergy || 0) - 0.04);
-    const renderRadius = ball.radius * (1 + Math.min(0.18, lightPulse * 0.12 + Number(scene.ballPulse ?? 0)));
-    ctx.globalAlpha = Number(personality.trailAlpha ?? 0.22);
+    const renderRadius = ball.radius * visual.radiusScale * (1 + Math.min(0.18, lightPulse * 0.12 + Number(scene.ballPulse ?? 0)));
+    ctx.globalAlpha = visual.trailAlpha;
     ctx.strokeStyle = ball.color;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(ball.x, ball.y);
     ctx.lineTo(ball.x - ball.vx * 0.075, ball.y - ball.vy * 0.075);
     ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = visual.bodyAlpha;
     ctx.fillStyle = ball.color;
     ctx.strokeStyle = '#050504';
     ctx.lineWidth = 2;

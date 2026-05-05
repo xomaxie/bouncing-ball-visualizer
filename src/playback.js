@@ -5,7 +5,7 @@ import {
   reflectVelocity,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js?v=20260505-black-hole-capture-fix-v1';
+} from './physics.js?v=20260505-orbit-visual-v1';
 
 const EPSILON = 1e-7;
 
@@ -32,6 +32,8 @@ function destroyBallInBlackHole(ball) {
   ball.retireOnNextCollision = false;
   ball.armedSegmentId = null;
   ball.blackHoleOrbit = null;
+  ball.blackHoleOrbitProgress = 0;
+  ball.blackHoleOrbitRadius = 0;
   ball.blackHoleCaptured = true;
   ball.blackHoleDestroyed = true;
   ball.vx = 0;
@@ -81,6 +83,8 @@ export function createPlaybackState(plan, arena) {
       ball.finalSegmentId = last?.id ?? null;
       ball.retireOnNextCollision = false;
       ball.blackHoleOrbit = null;
+      ball.blackHoleOrbitProgress = 0;
+      ball.blackHoleOrbitRadius = 0;
       ball.blackHoleCaptured = false;
       ball.blackHoleDestroyed = false;
       balls.set(planned.id, ball);
@@ -127,6 +131,8 @@ export function launchPlaybackSegment(sim, segment) {
   ball.spawned = true;
   ball.retired = false;
   ball.blackHoleOrbit = null;
+  ball.blackHoleOrbitProgress = 0;
+  ball.blackHoleOrbitRadius = 0;
   ball.blackHoleCaptured = false;
   ball.blackHoleDestroyed = false;
 

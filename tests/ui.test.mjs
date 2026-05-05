@@ -146,7 +146,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-orbit-capture-reuse-v1/);
+  assert.match(html, /app\.js\?v=20260505-orbit-visual-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -176,6 +176,10 @@ test('black-hole visual has no outer ring and exposes the waiting-room ball stat
 
   assert.doesNotMatch(app, /ctx\.arc\(blackHole\.x, blackHole\.y, horizon \* \(1\.08/, 'black hole should not draw the old bright outer ring');
   assert.doesNotMatch(app, /ctx\.ellipse\(blackHole\.x, blackHole\.y, radius \* 4\.6/, 'black hole should not draw the old elliptical disc ring');
+  assert.match(app, /function orbitBallVisualState/);
+  assert.match(app, /blackHoleOrbitProgress/);
+  assert.match(app, /visual\.lightAlpha/);
+  assert.match(app, /visual\.bodyAlpha/);
   assert.match(app, /orbitingBalls/);
   assert.match(app, /blackHoleDestroyedBalls/);
   assert.match(app, /blackHoleSourceSegments/);

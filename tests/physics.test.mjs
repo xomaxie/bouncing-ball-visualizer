@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   blackHoleAccelerationAt,
+  createBlackHoleOrbit,
   fieldPathSamples,
+  sampleBlackHoleOrbit,
   stepBallInCircle,
   createBall,
   reflectVelocity,
@@ -132,4 +134,17 @@ test('captured black-hole balls remain destroyed during later physics prediction
   assert.equal(ball.y, capturedPosition.y, 'captured balls should not drift back out of the event horizon');
   assert.equal(ball.vx, 0);
   assert.equal(ball.vy, 0);
+});
+
+test('black-hole waiting orbits start in a wider faint storage band', () => {
+  const blackHole = { enabled: true, x: 0, y: 0, radius: 12, strength: 0, softeningRadius: 34, eventHorizonRadius: 10 };
+  const ball = createBall({ id: 'waiting-band', x: 1, y: 0, radius: 5 });
+
+  const orbit = createBlackHoleOrbit(ball, blackHole, 2);
+  const first = sampleBlackHoleOrbit(orbit, blackHole, 2);
+
+  assert.ok(orbit.initialRadius >= 56, `waiting orbit should be projected away from the event horizon; got ${orbit.initialRadius}`);
+  assert.ok(first.radius >= 56, `sampled orbit should begin in the wider storage band; got ${first.radius}`);
+  assert.ok(orbit.visualAlpha <= 0.30, `waiting orbit should render subdued; got ${orbit.visualAlpha}`);
+  assert.ok(orbit.lightAlpha <= 0.24, `waiting orbit should emit less light; got ${orbit.lightAlpha}`);
 });

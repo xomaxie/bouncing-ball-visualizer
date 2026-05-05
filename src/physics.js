@@ -57,6 +57,15 @@ export function createBlackHoleOrbit(ballLike = {}, blackHoleConfig = null, curr
   const captureRadius = blackHoleCaptureRadiusForBall(ballRadius, blackHole);
   const fallbackDistance = captureRadius + Number(blackHole.radius || 12) * 2.2;
   const safeDistance = Math.max(captureRadius + 6, currentDistance || fallbackDistance);
+  const wellRadius = Math.max(4, Number(blackHole.radius || 12));
+  const softeningRadius = Math.max(1, Number(blackHole.softeningRadius || wellRadius * 2.6));
+  const storageJitter = wellRadius * (0.8 + randomUnitForBallId(ballId, `storage:${Math.round(Number(currentTime || 0) * 1000)}`) * 2.35);
+  const storageDistance = Math.max(
+    safeDistance,
+    captureRadius + Math.max(20, ballRadius * 5.2),
+    wellRadius * 5.4 + storageJitter,
+    softeningRadius * 1.72,
+  );
   const unit = currentDistance > 1e-6
     ? { x: dx / currentDistance, y: dy / currentDistance }
     : {
@@ -73,14 +82,16 @@ export function createBlackHoleOrbit(ballLike = {}, blackHoleConfig = null, curr
     active: true,
     startedAt: Number(currentTime || 0),
     angle: Math.atan2(unit.y, unit.x),
-    radius: safeDistance,
-    initialRadius: safeDistance,
+    radius: storageDistance,
+    initialRadius: storageDistance,
     captureRadius,
     rotations,
     angularVelocity,
-    decayRate: (safeDistance - captureRadius) / lifetime,
-    wobble: Math.min(10, Math.max(1.5, safeDistance * 0.018)) * (0.35 + randomUnitForBallId(ballId, 'wobble') * 0.65),
+    decayRate: (storageDistance - captureRadius) / lifetime,
+    wobble: Math.min(10, Math.max(1.5, storageDistance * 0.018)) * (0.35 + randomUnitForBallId(ballId, 'wobble') * 0.65),
     wobblePhase: randomUnitForBallId(ballId, 'phase') * Math.PI * 2,
+    visualAlpha: 0.18 + randomUnitForBallId(ballId, 'visual-alpha') * 0.08,
+    lightAlpha: 0.10 + randomUnitForBallId(ballId, 'light-alpha') * 0.07,
   };
 }
 
@@ -97,6 +108,7 @@ function sampleBlackHoleOrbitPoint(orbit, blackHole, elapsed) {
     angle,
     radius,
     rawRadius,
+    progress,
     destroyed: rawRadius <= orbit.captureRadius + 0.2,
   };
 }
@@ -124,6 +136,8 @@ export function applyBlackHoleOrbitToBall(ball, orbit = null, blackHoleConfig = 
   ball.y = sample.y;
   ball.vx = sample.vx;
   ball.vy = sample.vy;
+  ball.blackHoleOrbitProgress = sample.progress;
+  ball.blackHoleOrbitRadius = sample.radius;
   return sample.destroyed;
 }
 
