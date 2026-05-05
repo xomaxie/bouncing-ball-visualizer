@@ -17,6 +17,8 @@ export function createVisualEffectsState({ bandCount = 56 } = {}) {
     particles: [],
     screenImpact: 0,
     blackHolePulse: 0,
+    dominantNoteColor: null,
+    dominantNoteEnergy: 0,
   };
 }
 
@@ -108,6 +110,13 @@ export function registerNoteImpact(effects, impact = {}) {
   const amplitude = clamp(Number(velocity || 0.7), 0.05, 1.15);
   const pulse = energy * (0.24 + amplitude * 0.42) * Math.sqrt(impactMultiplier);
   effects.blackHolePulse = clamp(Math.max(Number(effects.blackHolePulse || 0), pulse) + pulse * 0.22, 0, 1.15);
+
+  const dominantEnergy = clamp(energy * Math.sqrt(impactMultiplier) * (0.84 + amplitude * 0.32), 0.12, 1.15);
+  const currentDominantEnergy = Number(effects.dominantNoteEnergy || 0);
+  if (!effects.dominantNoteColor || dominantEnergy >= currentDominantEnergy * 0.78) {
+    effects.dominantNoteColor = color;
+  }
+  effects.dominantNoteEnergy = clamp(Math.max(currentDominantEnergy * 0.72, dominantEnergy), 0, 1.15);
   return effects;
 }
 
@@ -139,5 +148,14 @@ export function decayVisualEffects(effects, dt) {
   if (effects.screenImpact < 0.002) effects.screenImpact = 0;
   effects.blackHolePulse = Math.max(0, Number(effects.blackHolePulse || 0) * Math.exp(-safeDt * 3.35) - safeDt * 0.018);
   if (effects.blackHolePulse < 0.002) effects.blackHolePulse = 0;
+
+  effects.dominantNoteEnergy = Math.max(
+    0,
+    Number(effects.dominantNoteEnergy || 0) * Math.exp(-safeDt * 2.55) - safeDt * 0.012,
+  );
+  if (effects.dominantNoteEnergy < 0.012) {
+    effects.dominantNoteEnergy = 0;
+    effects.dominantNoteColor = null;
+  }
   return effects;
 }

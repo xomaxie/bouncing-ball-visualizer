@@ -10,13 +10,14 @@ import { planSong } from './solver.js?v=20260505-perceptual-black-hole-energy-v1
 import { advancePlayback, createPlaybackState } from './playback.js?v=20260504-personality-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
-import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-perceptual-black-hole-energy-v1';
+import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
 import { fieldPathSamples } from './physics.js?v=20260505-perceptual-black-hole-energy-v1';
 import {
   advanceBlackHoleParticles,
+  blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-perceptual-black-hole-energy-v1';
+} from './black-hole-particles.js?v=20260505-disc-light-particles-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 
@@ -261,6 +262,13 @@ function blackHoleVisualState(blackHole = plan?.blackHole, energyState = blackHo
     density,
     radius: baseRadius * sizeScale,
     horizon: baseHorizon * sizeScale,
+  };
+}
+
+function blackHoleDominantColorState() {
+  return {
+    color: visualEffects?.dominantNoteColor || '#bd82ff',
+    colorEnergy: Math.max(0, Math.min(1.15, Number(visualEffects?.dominantNoteEnergy || 0))),
   };
 }
 
@@ -720,6 +728,7 @@ function drawBlackHole() {
   const energyState = blackHoleEnergyState();
   const visual = blackHoleVisualState(blackHole, energyState);
   const particles = blackHoleParticleSnapshots(system, blackHole, energyState);
+  const lightParticles = blackHoleLightParticleSnapshots(system, blackHole, energyState, blackHoleDominantColorState());
   const radius = visual?.radius ?? Math.max(4, blackHole.radius || arena.radius * 0.045);
   const horizon = visual?.horizon ?? Math.max(radius * 1.02, blackHole.eventHorizonRadius || radius * 1.08);
   const pulse = 0.5 + Math.sin(performance.now() * 0.0034) * 0.5;
@@ -730,6 +739,8 @@ function drawBlackHole() {
   ctx.arc(arena.cx, arena.cy, arena.radius - 1, 0, Math.PI * 2);
   ctx.clip();
   ctx.globalCompositeOperation = 'lighter';
+
+  drawBlackHoleLightParticles(lightParticles, power);
 
   for (const particle of particles) {
     const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
@@ -769,6 +780,43 @@ function drawBlackHole() {
   ctx.ellipse(blackHole.x, blackHole.y, radius * 4.6, radius * 1.42, -0.22, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawBlackHoleLightParticles(lightParticles, power = 0) {
+  if (!lightParticles?.length) return;
+
+  for (const particle of lightParticles) {
+    if (particle.renderMode === 'disc-light-particle') {
+      const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
+      if (alpha <= 0.02) continue;
+
+      ctx.globalAlpha = alpha * (0.48 + power * 0.38);
+      ctx.strokeStyle = colorWithAlpha(particle.color, 0.84);
+      ctx.lineWidth = Math.max(0.35, Number(particle.lineWidth || 0.7));
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(particle.tailX, particle.tailY);
+      ctx.quadraticCurveTo(
+        Number.isFinite(particle.controlX) ? particle.controlX : (particle.tailX + particle.x) * 0.5,
+        Number.isFinite(particle.controlY) ? particle.controlY : (particle.tailY + particle.y) * 0.5,
+        particle.x,
+        particle.y,
+      );
+      ctx.stroke();
+
+      const glowRadius = Math.max(1.8, Number(particle.glowRadius || 5));
+      const glow = ctx.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, glowRadius);
+      glow.addColorStop(0, colorWithAlpha(particle.color, alpha * (0.46 + power * 0.24)));
+      glow.addColorStop(0.36, colorWithAlpha(particle.color, alpha * 0.18));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, glowRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 }
 
 function drawBalls() {
@@ -963,6 +1011,11 @@ window.MusicVisualizerDebug = {
     blackHoleVisualDensity: blackHoleVisualState()?.density ?? 0,
     blackHoleVisualPower: blackHoleVisualState()?.power ?? 0,
     blackHolePulse: visualEffects?.blackHolePulse ?? 0,
+    blackHoleDominantNoteColor: visualEffects?.dominantNoteColor ?? null,
+    blackHoleDominantNoteEnergy: visualEffects?.dominantNoteEnergy ?? 0,
+    blackHoleLightParticleCount: plan?.blackHole
+      ? blackHoleLightParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState(), blackHoleDominantColorState()).length
+      : 0,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
     adaptiveSegments: plan?.events?.filter((segment) => (segment.energyIntensity || 0) > 0)?.length ?? 0,

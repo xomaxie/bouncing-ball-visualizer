@@ -82,6 +82,26 @@ test('registerNoteImpact drives a separate black-hole energy pulse from note amp
   assert.ok(loud.blackHolePulse > quiet.blackHolePulse * 1.6, 'loud notes should create a much stronger black-hole energy pulse');
 });
 
+test('registerNoteImpact tracks the current dominant note color for black-hole disc light', () => {
+  const effects = createVisualEffectsState({ bandCount: 24 });
+
+  registerNoteImpact(effects, { midi: 45, velocity: 0.26, x: 120, y: 160, color: '#3366ff' });
+  assert.equal(effects.dominantNoteColor, '#3366ff');
+  assert.ok(effects.dominantNoteEnergy > 0.25, 'quiet impacts should still seed a dominant color');
+
+  registerNoteImpact(effects, { midi: 84, velocity: 0.98, x: 120, y: 160, color: '#ff44aa' });
+  assert.equal(effects.dominantNoteColor, '#ff44aa', 'stronger current hits should become the active dominant color');
+
+  const before = effects.dominantNoteEnergy;
+  decayVisualEffects(effects, 0.22);
+  assert.ok(effects.dominantNoteEnergy < before, 'dominant color intensity should decay with the current musical moment');
+  assert.equal(effects.dominantNoteColor, '#ff44aa', 'dominant color should persist while it still has visible energy');
+
+  decayVisualEffects(effects, 4);
+  assert.equal(effects.dominantNoteEnergy, 0);
+  assert.equal(effects.dominantNoteColor, null);
+});
+
 test('midiToFrequencyBin maps higher notes to higher bins and clamps extremes', () => {
   assert.ok(midiToFrequencyBin(72, 32) > midiToFrequencyBin(48, 32));
   assert.equal(midiToFrequencyBin(-10, 32), 0);

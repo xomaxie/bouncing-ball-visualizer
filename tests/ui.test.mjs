@@ -144,7 +144,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-curved-black-hole-streaks-v1/);
+  assert.match(html, /app\.js\?v=20260505-disc-light-particles-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -165,6 +165,17 @@ test('demo draws a particle-system black hole and enables stronger real field-so
   assert.match(app, /blackHoleSegments/);
   assert.match(app, /maxBlackHoleMissDistance/);
   assert.doesNotMatch(app, /const shadow = ctx\.createRadialGradient/, 'black hole should be rendered as orbiting particles, not a static gradient image');
+});
+
+test('black-hole disc emits energy-scaled light particles using the current dominant note color', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /blackHoleLightParticleSnapshots/);
+  assert.match(app, /dominantNoteColor/);
+  assert.match(app, /dominantNoteEnergy/);
+  assert.match(app, /renderMode === 'disc-light-particle'/);
+  assert.match(app, /drawBlackHoleLightParticles/);
+  assert.match(app, /blackHoleLightParticleCount/);
 });
 
 test('source metadata remains available without visual chrome', async () => {

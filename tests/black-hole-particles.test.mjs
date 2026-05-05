@@ -124,3 +124,29 @@ test('black hole particle snapshots expose curved streaks without sprite dots', 
     assert.ok(cross > 0.35, 'curve control point should bend the streak instead of falling on a straight line');
   }
 });
+
+test('black hole disc emits substantial light particles tinted by the current dominant note color', async () => {
+  const { createBlackHoleParticleSystem, blackHoleLightParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 96, seed: 'dominant-light-test' });
+
+  const calm = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.18, intensity: 0.05, pulse: 0 }, {
+    color: '#33aaff',
+    colorEnergy: 0.2,
+  });
+  const surge = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.88, intensity: 0.72, pulse: 0.66 }, {
+    color: '#ff44aa',
+    colorEnergy: 0.95,
+  });
+
+  assert.ok(calm.length <= 18, `calm sections should not overfill the disc with light particles, got ${calm.length}`);
+  assert.ok(surge.length >= 52, `high-energy dominant-color sections should emit substantial light particles, got ${surge.length}`);
+  assert.ok(surge.length > calm.length * 3, 'energy should strongly increase the emitted light particle count');
+  assert.ok(surge.every((particle) => particle.color === '#ff44aa'), 'disc light particles should use the current dominant note color');
+  assert.ok(surge.every((particle) => particle.renderMode === 'disc-light-particle'));
+  assert.ok(surge.every((particle) => particle.spriteRadius === 0), 'disc light should render as light motes/streaks, not old black-hole sprites');
+  assert.ok(surge.every((particle) => Number.isFinite(particle.x) && Number.isFinite(particle.y)));
+  assert.ok(
+    Math.max(...surge.map((particle) => particle.glowRadius)) > Math.max(...calm.map((particle) => particle.glowRadius)) * 1.55,
+    'high energy should create larger light emission halos',
+  );
+});

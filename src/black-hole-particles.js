@@ -196,3 +196,68 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
     };
   });
 }
+
+export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy = {}, colorState = {}) {
+  if (!system?.particles?.length) return [];
+  const dominantColor = String(colorState?.color || '').trim() || '#bd82ff';
+  const dominantEnergy = clamp(Number(colorState?.colorEnergy ?? 0), 0, 1.15);
+  const displayPower = displayPowerForEnergy(energy);
+  const pulse = energyPulse(energy);
+  const energyLevel = clamp(Number(energy?.energy ?? displayPower), 0, 1);
+  const emissionPower = clamp(displayPower * 0.78 + dominantEnergy * 0.42 + pulse * 0.22, 0, 1.15);
+  const visibleFraction = clamp(0.035 + emissionPower * 0.68, 0, 0.88);
+  const visibleCount = Math.max(0, Math.min(system.particles.length, Math.round(system.particles.length * visibleFraction)));
+  if (visibleCount <= 0) return [];
+
+  const cx = Number(blackHole.x || 0);
+  const cy = Number(blackHole.y || 0);
+  const rotation = -0.22;
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+  const discScale = 0.82 + energyLevel * 0.18 + emissionPower * 0.64 + pulse * 0.18;
+  const alphaScale = 0.18 + emissionPower * 0.64 + dominantEnergy * 0.26;
+  const glowScale = 0.92 + emissionPower * 1.18 + dominantEnergy * 0.72;
+
+  return system.particles.slice(0, visibleCount).map((particle, index) => {
+    const unit = index / Math.max(1, visibleCount - 1);
+    const angle = Number(particle.angle || 0) + Math.sin((particle.wobble || 0) * 0.8) * 0.05;
+    const baseRadius = Math.max(system.innerRadius * 1.42, Number(particle.orbitRadius || system.innerRadius)) * discScale;
+    const wobble = Math.sin((particle.wobble || 0) + angle * 1.7) * system.radius * 0.18;
+    const localX = Math.cos(angle) * baseRadius + Math.cos(angle * 1.5) * wobble;
+    const localY = Math.sin(angle) * baseRadius * Number(particle.tilt || 0.42) + Math.sin(angle * 2.3) * wobble * 0.25;
+    const x = cx + localX * cosR - localY * sinR;
+    const y = cy + localX * sinR + localY * cosR;
+
+    const radialLength = (6.5 + particle.size * 5.2 + unit * 10.5) * glowScale;
+    const radialX = Math.cos(angle) * radialLength;
+    const radialY = Math.sin(angle) * radialLength * Number(particle.tilt || 0.42);
+    const tangentX = Math.cos(angle + Math.PI / 2) * radialLength * (0.36 + emissionPower * 0.18);
+    const tangentY = Math.sin(angle + Math.PI / 2) * radialLength * Number(particle.tilt || 0.42) * (0.36 + emissionPower * 0.18);
+    const tailLocalX = localX - radialX * 0.58 - tangentX * 0.35;
+    const tailLocalY = localY - radialY * 0.58 - tangentY * 0.35;
+    const tailX = cx + tailLocalX * cosR - tailLocalY * sinR;
+    const tailY = cy + tailLocalX * sinR + tailLocalY * cosR;
+    const controlLocalX = (localX + tailLocalX) * 0.5 + tangentX * 0.58;
+    const controlLocalY = (localY + tailLocalY) * 0.5 + tangentY * 0.58;
+    const controlX = cx + controlLocalX * cosR - controlLocalY * sinR;
+    const controlY = cy + controlLocalX * sinR + controlLocalY * cosR;
+    const baseAlpha = Number(particle.alpha || 0.45) * alphaScale * (0.62 + unit * 0.32);
+
+    return {
+      id: particle.id,
+      x,
+      y,
+      tailX,
+      tailY,
+      controlX,
+      controlY,
+      radius: baseRadius,
+      glowRadius: (2.8 + particle.size * 3.4 + unit * 3.6) * glowScale,
+      lineWidth: (0.42 + particle.size * 0.34) * (0.9 + emissionPower * 0.75),
+      alpha: clamp(baseAlpha, 0.035, 0.92),
+      color: dominantColor,
+      spriteRadius: 0,
+      renderMode: 'disc-light-particle',
+    };
+  });
+}
