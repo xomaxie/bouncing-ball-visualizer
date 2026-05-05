@@ -8,9 +8,12 @@ import {
 } from './music.js?v=20260505-adaptive-octaves-v2';
 import { createEnergyProfile, dynamicSolverOptionsForEnergy, energyAtTime } from './energy.js';
 import {
+  activeBlackHole,
   ballisticPathSamples,
   createBall,
+  fieldPathSamples,
   reflectVelocity,
+  simulateFieldState,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
 } from './physics.js';
@@ -52,12 +55,17 @@ export const DEFAULT_SOLVER_OPTIONS = {
   pitchRangePaddingSemitones: 3,
   minimumPitchSpanSemitones: 36,
   excludeDrumsFromPitchRange: false,
+  blackHole: null,
+  blackHoleSolveTolerancePx: 2.5,
+  blackHoleSolveIterations: 8,
+  fieldStep: 1 / 180,
+  fieldMaxSteps: 320,
 };
 
 export function planFlight(start, target, launchTime, arrivalTime, options = {}) {
   const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
   const duration = arrivalTime - launchTime;
-  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0 };
+  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0, blackHole: activeBlackHole(opts) };
 
   if (duration < 0) {
     return { feasible: false, reason: 'negative-duration', launchTime, arrivalTime, duration, velocity: { x: 0, y: 0 }, speed: 0 };
@@ -74,6 +82,10 @@ export function planFlight(start, target, launchTime, arrivalTime, options = {})
       speed: 0,
       gravity,
     };
+  }
+
+  if (gravity.blackHole) {
+    return planFieldFlight(start, target, launchTime, arrivalTime, opts, gravity);
   }
 
   const velocity = {
@@ -94,14 +106,76 @@ export function planFlight(start, target, launchTime, arrivalTime, options = {})
   };
 }
 
+function planFieldFlight(start, target, launchTime, arrivalTime, options, gravity) {
+  const duration = arrivalTime - launchTime;
+  const tolerance = Math.max(0.25, Number(options.blackHoleSolveTolerancePx ?? DEFAULT_SOLVER_OPTIONS.blackHoleSolveTolerancePx));
+  const iterations = Math.max(1, Math.round(Number(options.blackHoleSolveIterations ?? DEFAULT_SOLVER_OPTIONS.blackHoleSolveIterations)));
+  let velocity = {
+    x: (target.x - start.x - 0.5 * (gravity.x || 0) * duration * duration) / duration,
+    y: (target.y - start.y - 0.5 * (gravity.y || 0) * duration * duration) / duration,
+  };
+  let best = null;
+
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const arrivedState = simulateFieldState(start, velocity, duration, gravity, options);
+    const error = {
+      x: arrivedState.x - target.x,
+      y: arrivedState.y - target.y,
+    };
+    const missDistance = Math.hypot(error.x, error.y);
+    const speed = Math.hypot(velocity.x, velocity.y);
+    const candidate = {
+      velocity: { x: velocity.x, y: velocity.y },
+      arrivalVelocity: { x: arrivedState.vx, y: arrivedState.vy },
+      speed,
+      missDistance,
+      iteration,
+    };
+    if (!best || missDistance < best.missDistance) best = candidate;
+    if (missDistance <= tolerance) break;
+
+    const correctionGain = iteration < 3 ? 0.92 : 0.68;
+    velocity = {
+      x: velocity.x - (error.x / duration) * correctionGain,
+      y: velocity.y - (error.y / duration) * correctionGain,
+    };
+  }
+
+  const speed = best?.speed ?? Math.hypot(velocity.x, velocity.y);
+  const missDistance = best?.missDistance ?? Infinity;
+  const feasible = duration >= (options.minFlightTime ?? 0)
+    && speed <= options.maxSpeed
+    && missDistance <= tolerance;
+  return {
+    feasible,
+    reason: feasible ? 'ok' : duration < options.minFlightTime ? 'too-soon' : speed > options.maxSpeed ? 'too-fast' : 'missed-target',
+    field: 'black-hole',
+    launchTime,
+    arrivalTime,
+    duration,
+    velocity: best?.velocity ?? velocity,
+    arrivalVelocity: best?.arrivalVelocity ?? velocity,
+    speed,
+    missDistance,
+    gravity,
+  };
+}
+
 export function pathFitsArena(start, velocity, duration, arena, options = {}) {
   const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
-  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0 };
-  const samples = ballisticPathSamples(start, velocity, duration, gravity, opts.pathSamples);
+  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0, blackHole: activeBlackHole(opts) };
+  const samples = gravity.blackHole
+    ? fieldPathSamples(start, velocity, duration, gravity, opts.pathSamples, opts)
+    : ballisticPathSamples(start, velocity, duration, gravity, opts.pathSamples);
   const limit = arena.radius - opts.ballRadius;
+  const horizonLimit = gravity.blackHole
+    ? (Number(gravity.blackHole.eventHorizonRadius || 0) + Number(opts.ballRadius || 0))
+    : 0;
   return samples.every((point, index) => {
     if (index === samples.length - 1) return true;
-    return Math.hypot(point.x - arena.cx, point.y - arena.cy) <= limit + 1e-6;
+    if (Math.hypot(point.x - arena.cx, point.y - arena.cy) > limit + 1e-6) return false;
+    if (horizonLimit > 0 && Math.hypot(point.x - gravity.blackHole.x, point.y - gravity.blackHole.y) <= horizonLimit) return false;
+    return true;
   });
 }
 
@@ -155,7 +229,7 @@ function predictStateAt(state, targetTime, arena, options) {
     vy: state.vy,
     radius: opts.ballRadius,
   });
-  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0 };
+  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0, blackHole: activeBlackHole(opts) };
   const fixedStep = opts.idleStep || (1 / 120);
   let time = startTime;
   while (time < targetTime - 1e-9) {
@@ -185,7 +259,7 @@ function predictWallLaunches(state, earliestLaunchTime, latestLaunchTime, arena,
   if (!state || latestLaunchTime < earliestLaunchTime - 1e-9) return [];
 
   const launches = [];
-  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0 };
+  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0, blackHole: activeBlackHole(opts) };
   const ball = createBall({
     x: state.x,
     y: state.y,
@@ -227,7 +301,7 @@ function predictWallLaunches(state, earliestLaunchTime, latestLaunchTime, arena,
 function stateAfterScheduledHit(wallTarget, centerTarget, velocity, duration, arrivalTime, arena, options) {
   const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
   const normal = wallNormal(wallTarget, arena);
-  const incoming = {
+  const incoming = opts.arrivalVelocity || {
     x: velocity.x + (opts.gravityX || 0) * duration,
     y: velocity.y + (opts.gravityY || 0) * duration,
   };
@@ -317,6 +391,28 @@ function recycleFallbackCandidateLimitForTrack(noteCount, options) {
     return Math.max(0, Math.min(requested, options.largeTrackRecycleFallbackCandidateLimit ?? requested));
   }
   return requested;
+}
+
+function createPlanBlackHole(arena, options = {}) {
+  const config = options.blackHole;
+  if (!config || config.enabled === false) return null;
+  const radius = Math.max(5, Number(config.radius ?? arena.radius * 0.045));
+  const x = Number.isFinite(Number(config.x))
+    ? Number(config.x)
+    : arena.cx + Number(config.offsetX ?? 0) * arena.radius;
+  const y = Number.isFinite(Number(config.y))
+    ? Number(config.y)
+    : arena.cy + Number(config.offsetY ?? -0.05) * arena.radius;
+  return {
+    enabled: true,
+    x,
+    y,
+    radius,
+    strength: Math.max(0, Number(config.strength ?? arena.radius * arena.radius * 12)),
+    softeningRadius: Math.max(radius * 1.8, Number(config.softeningRadius ?? radius * 4.6)),
+    eventHorizonRadius: Math.max(radius * 0.72, Number(config.eventHorizonRadius ?? radius * 1.05)),
+    label: config.label || 'gravity well',
+  };
 }
 
 function uniqueNumbers(values) {
@@ -590,10 +686,14 @@ export function planTrack(track, arena, options = {}) {
       arrivalTime: note.time,
       duration: best.flight.duration,
       velocity: best.flight.velocity,
+      arrivalVelocity: best.flight.arrivalVelocity || null,
       speed: best.flight.speed,
       speedLimit: noteOpts.maxSpeed,
       gravityX: best.flight.gravity?.x ?? noteOpts.gravityX ?? 0,
       gravityY: best.flight.gravity?.y ?? noteOpts.gravityY ?? 0,
+      blackHole: best.flight.gravity?.blackHole || noteOpts.blackHole || null,
+      flightField: best.flight.field || 'ballistic',
+      missDistance: best.flight.missDistance || 0,
       idleGravityY: trackOpts.gravityY || 0,
       ballRadius: noteOpts.ballRadius,
       personality,
@@ -613,6 +713,8 @@ export function planTrack(track, arena, options = {}) {
       ...noteOpts,
       gravityX: best.flight.gravity?.x ?? noteOpts.gravityX ?? 0,
       gravityY: best.flight.gravity?.y ?? noteOpts.gravityY ?? 0,
+      blackHole: best.flight.gravity?.blackHole || noteOpts.blackHole || null,
+      arrivalVelocity: best.flight.arrivalVelocity || null,
     });
     segments.push(segment);
   });
@@ -633,6 +735,7 @@ export function planTrack(track, arena, options = {}) {
 export function planSong(tracks, arena, options = {}) {
   const normalized = summarizeTracks(tracks);
   const baseOptions = { ...DEFAULT_SOLVER_OPTIONS, ...options };
+  const blackHole = createPlanBlackHole(arena, baseOptions);
   const pitchRange = createAdaptivePitchRange(normalized, baseOptions);
   const energyProfile = options.energyProfile
     || (options.energyAdaptive ? createEnergyProfile(normalized, {
@@ -644,6 +747,7 @@ export function planSong(tracks, arena, options = {}) {
     minMidi: pitchRange.minMidi,
     maxMidi: pitchRange.maxMidi,
     pitchRange,
+    blackHole,
   };
   const trackOptions = energyProfile ? { ...rangeOptions, energyProfile } : rangeOptions;
   const plannedTracks = normalized.map((track) => planTrack(track, arena, trackOptions));
@@ -666,5 +770,6 @@ export function planSong(tracks, arena, options = {}) {
     options: planOptions,
     energyProfile,
     pitchRange,
+    blackHole,
   };
 }

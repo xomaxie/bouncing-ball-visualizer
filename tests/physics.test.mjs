@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stepBallInCircle, createBall, reflectVelocity, PLAYBACK_PHYSICS_OPTIONS } from '../src/physics.js';
+import {
+  blackHoleAccelerationAt,
+  fieldPathSamples,
+  stepBallInCircle,
+  createBall,
+  reflectVelocity,
+  PLAYBACK_PHYSICS_OPTIONS,
+} from '../src/physics.js';
 
 const arena = { cx: 0, cy: 0, radius: 100 };
 
@@ -60,4 +67,35 @@ test('trajectoryPathSamples starts active paths at the planned in-flight positio
   assert.ok(Math.abs(samples[0].y - 145) < 1e-9);
   assert.ok(Math.abs(samples.at(-1).x - segment.centerTarget.x) < 1e-9);
   assert.ok(Math.abs(samples.at(-1).y - segment.centerTarget.y) < 1e-9);
+});
+
+test('blackHoleAccelerationAt pulls objects toward the black hole with stronger nearby force', () => {
+  const blackHole = { enabled: true, x: 0, y: 0, strength: 900000, softeningRadius: 35 };
+  const far = blackHoleAccelerationAt({ x: 180, y: 0 }, blackHole);
+  const near = blackHoleAccelerationAt({ x: 60, y: 0 }, blackHole);
+
+  assert.ok(far.x < 0, `far acceleration should pull left toward the well, got ${far.x}`);
+  assert.ok(near.x < 0, `near acceleration should pull left toward the well, got ${near.x}`);
+  assert.ok(Math.abs(near.x) > Math.abs(far.x), 'black-hole acceleration should be stronger near the well');
+});
+
+test('fieldPathSamples bends a flight around a black hole using the real acceleration field', () => {
+  const start = { x: -180, y: -80 };
+  const velocity = { x: 340, y: 120 };
+  const gravity = {
+    x: 0,
+    y: 0,
+    blackHole: { enabled: true, x: 0, y: 0, strength: 2000000, softeningRadius: 55, eventHorizonRadius: 12 },
+  };
+  const samples = fieldPathSamples(start, velocity, 1.0, gravity, 40);
+  const midway = samples[Math.floor(samples.length / 2)];
+  const linearMidway = {
+    x: start.x + velocity.x * 0.5,
+    y: start.y + velocity.y * 0.5,
+  };
+
+  assert.ok(
+    Math.hypot(midway.x - linearMidway.x, midway.y - linearMidway.y) > 12,
+    'black-hole field should bend the path rather than using a straight fake trajectory',
+  );
 });

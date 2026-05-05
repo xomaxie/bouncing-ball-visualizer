@@ -141,6 +141,17 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
   assert.match(app, /drawImpactParticles\(\)/);
 });
 
+test('demo draws a small black hole and enables real field-solved maneuvers', async () => {
+  const { html, app } = await projectFiles();
+
+  assert.match(html, /app\.js\?v=20260505-black-hole-v1/);
+  assert.match(app, /function drawBlackHole/);
+  assert.match(app, /blackHoleSolveIterations/);
+  assert.match(app, /blackHoleSolveTolerancePx/);
+  assert.match(app, /drawBlackHole\(\)/);
+  assert.match(app, /blackHoleSegments/);
+  assert.match(app, /maxBlackHoleMissDistance/);
+});
 
 test('source metadata remains available without visual chrome', async () => {
   const { html } = await projectFiles();

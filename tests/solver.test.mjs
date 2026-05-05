@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pitchToWallTarget, wallColorForTarget } from '../src/music.js';
 import { planFlight, planSong, planTrack, pathFitsArena } from '../src/solver.js';
-import { simulatePosition } from '../src/physics.js';
+import { fieldPathSamples, simulatePosition } from '../src/physics.js';
 import { advancePlayback, createPlaybackState } from '../src/playback.js';
 
 const arena = { cx: 320, cy: 260, radius: 210 };
@@ -211,6 +211,40 @@ test('planFlight computes a launch velocity that reaches the target at the reque
   assert.ok(Math.abs(arrived.y - target.y) < 1e-9);
 });
 
+test('planFlight solves a real black-hole assisted maneuver that reaches the target', () => {
+  const blackHole = {
+    enabled: true,
+    x: arena.cx,
+    y: arena.cy,
+    strength: 2000000,
+    softeningRadius: 58,
+    eventHorizonRadius: 16,
+  };
+  const start = { x: arena.cx - 180, y: arena.cy - 76 };
+  const target = { x: arena.cx + 175, y: arena.cy + 42 };
+  const flight = planFlight(start, target, 0, 1.18, {
+    gravityY: 0,
+    maxSpeed: 1400,
+    blackHole,
+    fieldStep: 1 / 300,
+  });
+  const samples = fieldPathSamples(start, flight.velocity, flight.duration, { x: 0, y: 0, blackHole }, 90);
+  const arrived = samples.at(-1);
+  const linearMidway = {
+    x: start.x + (target.x - start.x) * 0.5,
+    y: start.y + (target.y - start.y) * 0.5,
+  };
+  const actualMidway = samples[Math.floor(samples.length / 2)];
+
+  assert.equal(flight.feasible, true, flight.reason);
+  assert.equal(flight.field, 'black-hole');
+  assert.ok(Math.hypot(arrived.x - target.x, arrived.y - target.y) <= 2.5, `missed target by ${Math.hypot(arrived.x - target.x, arrived.y - target.y).toFixed(2)}px`);
+  assert.ok(
+    Math.hypot(actualMidway.x - linearMidway.x, actualMidway.y - linearMidway.y) > 8,
+    'flight should be a visibly curved black-hole maneuver, not a straight ballistic fake',
+  );
+});
+
 
 test('pathFitsArena rejects paths where the ball center leaves the circle before the scheduled wall hit', () => {
   const localArena = { cx: 0, cy: 0, radius: 100 };
@@ -220,6 +254,18 @@ test('pathFitsArena rejects paths where the ball center leaves the circle before
   const velocity = { x: 0, y: 0 };
 
   assert.equal(pathFitsArena(start, velocity, duration, localArena, options), false);
+});
+
+test('pathFitsArena rejects black-hole paths that cross the event horizon', () => {
+  const localArena = { cx: 0, cy: 0, radius: 140 };
+  const options = {
+    ballRadius: 5,
+    gravityY: 0,
+    pathSamples: 40,
+    blackHole: { enabled: true, x: 0, y: 0, strength: 0, softeningRadius: 30, eventHorizonRadius: 20 },
+  };
+
+  assert.equal(pathFitsArena({ x: -100, y: 0 }, { x: 200, y: 0 }, 1, localArena, options), false);
 });
 
 

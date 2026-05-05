@@ -6,7 +6,7 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-rhythm-arc-v1';
+import { planSong } from './solver.js?v=20260505-black-hole-v1';
 import { advancePlayback, createPlaybackState } from './playback.js?v=20260504-personality-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
@@ -113,6 +113,22 @@ function solverOptions() {
     recoveryTime: 0.06,
     energyAdaptive: true,
     energyThreshold: 0.52,
+    pathSamples: 14,
+    fieldStep: 1 / 75,
+    fieldMaxSteps: 160,
+    blackHoleSolveIterations: 4,
+    blackHoleSolveTolerancePx: 5,
+    largeTrackReusableCandidateLimit: 4,
+    largeTrackRecycleFallbackCandidateLimit: 12,
+    blackHole: {
+      enabled: true,
+      offsetX: 0,
+      offsetY: -0.045,
+      radius: Math.max(7, arena.radius * 0.043),
+      strength: arena.radius * arena.radius * 46,
+      softeningRadius: Math.max(28, arena.radius * 0.18),
+      eventHorizonRadius: Math.max(8, arena.radius * 0.045),
+    },
   };
 }
 
@@ -618,6 +634,50 @@ function drawWall() {
   ctx.restore();
 }
 
+function drawBlackHole() {
+  const blackHole = plan?.blackHole;
+  if (!blackHole) return;
+  const radius = Math.max(4, blackHole.radius || arena.radius * 0.045);
+  const pulse = 0.5 + Math.sin(performance.now() * 0.0023) * 0.5;
+  ctx.save();
+  ctx.translate(blackHole.x, blackHole.y);
+  ctx.globalCompositeOperation = 'source-over';
+
+  const shadow = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius * 5.5);
+  shadow.addColorStop(0, 'rgba(0,0,0,0.98)');
+  shadow.addColorStop(0.34, 'rgba(0,0,0,0.72)');
+  shadow.addColorStop(0.72, 'rgba(0,0,0,0.18)');
+  shadow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = shadow;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 5.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalCompositeOperation = 'screen';
+  ctx.lineWidth = 1.1;
+  for (let ring = 0; ring < 3; ring += 1) {
+    const ringRadius = radius * (1.42 + ring * 0.36 + pulse * 0.035);
+    ctx.globalAlpha = 0.18 - ring * 0.035;
+    ctx.strokeStyle = ring % 2 === 0 ? 'rgba(119,167,255,0.82)' : 'rgba(193,137,255,0.65)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, ringRadius * 1.48, ringRadius * 0.54, -0.18, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(232,238,255,0.20)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 1.05, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawBalls() {
   if (!sim) return;
   for (const ghost of sim.ghostHits) {
@@ -677,6 +737,7 @@ function render() {
   if (!plan || !sim) return;
   drawExteriorFrequencyField();
   drawWall();
+  drawBlackHole();
   drawLightSystem();
   drawBalls();
   drawImpactFrames();
@@ -769,6 +830,9 @@ window.MusicVisualizerDebug = {
     sceneLightMultiplier: currentSceneMode?.lightMultiplier ?? 1,
     trackPersonalities: plan?.tracks?.map((track) => track.personality?.name || 'default') ?? [],
     pitchRange: plan?.pitchRange ?? null,
+    blackHole: plan?.blackHole ?? null,
+    blackHoleSegments: plan?.events?.filter((segment) => segment.flightField === 'black-hole').length ?? 0,
+    maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
     adaptiveSegments: plan?.events?.filter((segment) => (segment.energyIntensity || 0) > 0)?.length ?? 0,

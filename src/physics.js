@@ -7,6 +7,117 @@ export function simulatePosition(start, velocity, duration, gravity = { x: 0, y:
   };
 }
 
+export function activeBlackHole(gravityOrOptions = {}) {
+  const blackHole = gravityOrOptions?.blackHole;
+  if (!blackHole || blackHole.enabled === false) return null;
+  if (!Number.isFinite(Number(blackHole.x)) || !Number.isFinite(Number(blackHole.y))) return null;
+  return {
+    ...blackHole,
+    x: Number(blackHole.x),
+    y: Number(blackHole.y),
+    strength: Math.max(0, Number(blackHole.strength ?? 0)),
+    softeningRadius: Math.max(1, Number(blackHole.softeningRadius ?? 48)),
+    eventHorizonRadius: Math.max(0, Number(blackHole.eventHorizonRadius ?? 0)),
+  };
+}
+
+export function blackHoleAccelerationAt(point, blackHoleConfig = null) {
+  const blackHole = activeBlackHole({ blackHole: blackHoleConfig });
+  if (!blackHole || blackHole.strength <= 0) return { x: 0, y: 0 };
+  const dx = blackHole.x - point.x;
+  const dy = blackHole.y - point.y;
+  const softening = blackHole.softeningRadius;
+  const distanceSquared = dx * dx + dy * dy + softening * softening;
+  const scale = blackHole.strength / Math.pow(distanceSquared, 1.5);
+  return {
+    x: dx * scale,
+    y: dy * scale,
+  };
+}
+
+export function accelerationAtPoint(point, gravity = { x: 0, y: 0 }) {
+  const base = {
+    x: gravity.x || 0,
+    y: gravity.y || 0,
+  };
+  const blackHole = activeBlackHole(gravity);
+  if (!blackHole) return base;
+  const well = blackHoleAccelerationAt(point, blackHole);
+  return {
+    x: base.x + well.x,
+    y: base.y + well.y,
+  };
+}
+
+function fieldStepSize(duration, options = {}) {
+  const requested = Number(options.fieldStep ?? options.maxFieldStep ?? 1 / 180);
+  const maxStep = Number.isFinite(requested) && requested > 0 ? requested : 1 / 180;
+  const maxSteps = Math.max(1, Math.round(Number(options.fieldMaxSteps ?? 360)));
+  return Math.max(duration / maxSteps, maxStep);
+}
+
+function integrateFieldStep(state, dt, gravity = { x: 0, y: 0 }) {
+  const a0 = accelerationAtPoint(state, gravity);
+  state.x += state.vx * dt + 0.5 * a0.x * dt * dt;
+  state.y += state.vy * dt + 0.5 * a0.y * dt * dt;
+  const a1 = accelerationAtPoint(state, gravity);
+  state.vx += 0.5 * (a0.x + a1.x) * dt;
+  state.vy += 0.5 * (a0.y + a1.y) * dt;
+  return state;
+}
+
+export function simulateFieldState(start, velocity, duration, gravity = { x: 0, y: 0 }, options = {}) {
+  const state = {
+    x: start.x,
+    y: start.y,
+    vx: velocity.x,
+    vy: velocity.y,
+  };
+  if (duration <= 0) return state;
+  const maxStep = fieldStepSize(duration, options);
+  let elapsed = 0;
+  let guard = 0;
+  while (elapsed < duration - 1e-12 && guard < 20000) {
+    guard += 1;
+    const dt = Math.min(maxStep, duration - elapsed);
+    integrateFieldStep(state, dt, gravity);
+    elapsed += dt;
+  }
+  return state;
+}
+
+export function simulateFieldPosition(start, velocity, duration, gravity = { x: 0, y: 0 }, options = {}) {
+  const state = simulateFieldState(start, velocity, duration, gravity, options);
+  return { x: state.x, y: state.y };
+}
+
+export function fieldPathSamples(start, velocity, duration, gravity = { x: 0, y: 0 }, samples = 12, options = {}) {
+  const count = Math.max(1, Math.round(samples));
+  const points = [{ x: start.x, y: start.y }];
+  const state = {
+    x: start.x,
+    y: start.y,
+    vx: velocity.x,
+    vy: velocity.y,
+  };
+  const sampleStep = duration / count;
+  const maxStep = Math.min(sampleStep, fieldStepSize(duration, options));
+  let elapsed = 0;
+
+  for (let sample = 1; sample <= count; sample += 1) {
+    const targetTime = sample * sampleStep;
+    let guard = 0;
+    while (elapsed < targetTime - 1e-12 && guard < 20000) {
+      guard += 1;
+      const dt = Math.min(maxStep, targetTime - elapsed);
+      integrateFieldStep(state, dt, gravity);
+      elapsed += dt;
+    }
+    points.push({ x: state.x, y: state.y });
+  }
+  return points;
+}
+
 export function createBall({ id = '', x = 0, y = 0, vx = 0, vy = 0, radius = 7, color = '#fff', trackId = 0 } = {}) {
   return {
     id,
@@ -45,6 +156,20 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
   const restitution = options.restitution ?? 0.92;
   const tangentRetention = options.tangentRetention ?? 0.996;
   const drag = options.drag ?? 0.000;
+  const blackHole = activeBlackHole(gravity) || activeBlackHole(options);
+
+  if (blackHole && dt > 0) {
+    const maxStep = fieldStepSize(dt, options);
+    let elapsed = 0;
+    let guard = 0;
+    while (elapsed < dt - 1e-12 && guard < 10000) {
+      guard += 1;
+      const subDt = Math.min(maxStep, dt - elapsed);
+      integrateBallStepInCircle(ball, subDt, arena, { ...gravity, blackHole }, onCollision, { restitution, tangentRetention, drag });
+      elapsed += subDt;
+    }
+    return ball;
+  }
 
   const ax = gravity.x || 0;
   const ay = gravity.y || 0;
@@ -52,12 +177,20 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
   ball.y += ball.vy * dt + 0.5 * ay * dt * dt;
   ball.vx += ax * dt;
   ball.vy += ay * dt;
-  if (drag > 0) {
-    const damping = Math.max(0, 1 - drag * dt);
-    ball.vx *= damping;
-    ball.vy *= damping;
-  }
+  applyDrag(ball, dt, drag);
+  resolveCircleCollision(ball, arena, onCollision, restitution, tangentRetention);
 
+  return ball;
+}
+
+function applyDrag(ball, dt, drag = 0) {
+  if (drag <= 0) return;
+  const damping = Math.max(0, 1 - drag * dt);
+  ball.vx *= damping;
+  ball.vy *= damping;
+}
+
+function resolveCircleCollision(ball, arena, onCollision, restitution, tangentRetention) {
   const dx = ball.x - arena.cx;
   const dy = ball.y - arena.cy;
   const dist = Math.hypot(dx, dy) || 1;
@@ -81,7 +214,12 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
       });
     }
   }
+}
 
+function integrateBallStepInCircle(ball, dt, arena, gravity, onCollision, options) {
+  integrateFieldStep(ball, dt, gravity);
+  applyDrag(ball, dt, options.drag);
+  resolveCircleCollision(ball, arena, onCollision, options.restitution, options.tangentRetention);
   return ball;
 }
 

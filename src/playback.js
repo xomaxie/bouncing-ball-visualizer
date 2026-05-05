@@ -92,7 +92,7 @@ export function hitPlaybackSegment(sim, plan, arena, segment) {
     x: (segment.target.x - arena.cx) / arena.radius,
     y: (segment.target.y - arena.cy) / arena.radius,
   };
-  const incoming = {
+  const incoming = segment.arrivalVelocity || {
     x: segment.velocity.x,
     y: segment.velocity.y + (Number.isFinite(segment.gravityY) ? segment.gravityY : (plan.options.gravityY || 0)) * segment.duration,
   };
@@ -152,6 +152,7 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
     const ballGravity = {
       x: gravity.x || 0,
       y: Number.isFinite(ball.gravityY) ? ball.gravityY : (gravity.y || 0),
+      blackHole: gravity.blackHole || null,
     };
     stepBallInCircle(ball, dt, arena, ballGravity, (collision) => {
       callbacks.onCollision?.(collision);
@@ -169,7 +170,7 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
 export function advancePlayback(sim, plan, arena, dt, callbacks = {}) {
   if (!plan || !sim || dt <= 0) return sim;
 
-  const gravity = { x: 0, y: plan.options.gravityY || 0 };
+  const gravity = { x: 0, y: plan.options.gravityY || 0, blackHole: plan.blackHole || plan.options.blackHole || null };
   const physicsOptions = callbacks.physicsOptions || PLAYBACK_PHYSICS_OPTIONS;
   const targetTime = sim.time + dt;
   let guard = 0;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTrack } from '../src/solver.js';
-import { simulatePosition } from '../src/physics.js';
+import { fieldPathSamples, simulatePosition } from '../src/physics.js';
 import { advancePlayback, createPlaybackState, hitPlaybackSegment } from '../src/playback.js';
 
 const arena = { cx: 320, cy: 260, radius: 210 };
@@ -64,6 +64,42 @@ test('advancePlayback uses per-segment adaptive gravity for scheduled note fligh
 
   assert.ok(sim.segmentStates.get(segment.id).launched);
   assert.ok(Math.hypot(ball.x - expected.x, ball.y - expected.y) < 1e-6);
+});
+
+test('advancePlayback uses the same black-hole field that the solver planned against', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, strength: 2000000, softeningRadius: 58, eventHorizonRadius: 16 };
+  const segment = {
+    id: 'black-hole:0',
+    ballId: 'black-hole-ball',
+    trackId: 0,
+    trackName: 'gravity well',
+    target: { x: 470, y: 290 },
+    centerTarget: { x: 462, y: 289 },
+    start: { x: 145, y: 190 },
+    launchTime: 0,
+    arrivalTime: 1,
+    duration: 1,
+    velocity: { x: 320, y: 14 },
+    gravityY: 0,
+    blackHole,
+    wallColor: '#fff',
+    note: { time: 1, midi: 62, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'black-hole-ball', events: [segment] }], segments: [segment] }],
+    events: [segment],
+    duration: 1,
+    options: { ballRadius: 8, gravityY: 0, blackHole },
+    blackHole,
+  };
+  const sim = createPlaybackState(plan, arena);
+
+  advancePlayback(sim, plan, arena, 0.5);
+  const ball = sim.balls.get(segment.ballId);
+  const expected = fieldPathSamples(segment.start, segment.velocity, 0.5, { x: 0, y: 0, blackHole }, 40).at(-1);
+
+  assert.ok(sim.segmentStates.get(segment.id).launched);
+  assert.ok(Math.hypot(ball.x - expected.x, ball.y - expected.y) < 0.75, `black-hole playback diverged from planned field path: ball=(${ball.x}, ${ball.y}) expected=(${expected.x}, ${expected.y})`);
 });
 
 test('advancePlayback retires one-shot helper balls on their next natural bounce after the final wall hit', () => {
