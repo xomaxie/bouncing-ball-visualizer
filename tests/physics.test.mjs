@@ -12,6 +12,7 @@ import {
 } from '../src/physics.js';
 
 const arena = { cx: 0, cy: 0, radius: 100 };
+const DRIBBLE_PHYSICS_OPTIONS = { ...PLAYBACK_PHYSICS_OPTIONS, grazingWallDetach: true };
 
 test('stepBallInCircle reflects an outward-moving ball against the circular boundary', () => {
   const ball = createBall({ x: 92, y: 0, vx: 80, vy: 0, radius: 5 });
@@ -157,7 +158,7 @@ test('wall contacts inject enough inward bounce to avoid side-wall dribbling', (
   for (let step = 0; step < 120; step += 1) {
     stepBallInCircle(ball, 1 / 120, arena, { x: 0, y: 160 }, () => {
       collisions += 1;
-    }, PLAYBACK_PHYSICS_OPTIONS);
+    }, DRIBBLE_PHYSICS_OPTIONS);
     deepestInset = Math.max(deepestInset, (arena.radius - ball.radius) - Math.hypot(ball.x, ball.y));
   }
 
@@ -168,5 +169,55 @@ test('wall contacts inject enough inward bounce to avoid side-wall dribbling', (
   assert.ok(
     collisions < 45,
     `ball should not micro-collide down the wall every frame; collisions=${collisions}`,
+  );
+});
+
+test('low-speed wall contacts under outward gravity detach instead of dribbling along the boundary', () => {
+  const radius = 8;
+  const limit = arena.radius - radius;
+  const ball = createBall({ x: 3.1, y: limit - 0.3, vx: 1.5, vy: 0.1, radius });
+  let wallPinnedFrames = 0;
+  let deepestInset = 0;
+
+  for (let step = 0; step < 120; step += 1) {
+    stepBallInCircle(ball, 1 / 120, arena, { x: 0, y: 160 }, () => {}, DRIBBLE_PHYSICS_OPTIONS);
+    const inset = limit - Math.hypot(ball.x, ball.y);
+    if (inset < 1.5) wallPinnedFrames += 1;
+    deepestInset = Math.max(deepestInset, inset);
+  }
+
+  assert.ok(
+    deepestInset > 14,
+    `low-speed bottom/lower-wall contacts should visibly bounce inward; deepest inset=${deepestInset.toFixed(2)}px`,
+  );
+  assert.ok(
+    wallPinnedFrames < 80,
+    `ball should not spend nearly every frame pinned to the wall; pinnedFrames=${wallPinnedFrames}`,
+  );
+});
+
+test('near-wall grazing motion is nudged inward instead of sliding down the side', () => {
+  const radius = 8;
+  const limit = arena.radius - radius;
+  const y = 8;
+  const x = Math.sqrt(limit * limit - y * y) - 0.2;
+  const ball = createBall({ x, y, vx: 0, vy: -74, radius });
+  let wallPinnedFrames = 0;
+  let deepestInset = 0;
+
+  for (let step = 0; step < 120; step += 1) {
+    stepBallInCircle(ball, 1 / 120, arena, { x: 0, y: 160 }, () => {}, DRIBBLE_PHYSICS_OPTIONS);
+    const inset = limit - Math.hypot(ball.x, ball.y);
+    if (inset < 1.5) wallPinnedFrames += 1;
+    deepestInset = Math.max(deepestInset, inset);
+  }
+
+  assert.ok(
+    deepestInset > 10,
+    `grazing side-wall motion should detach into the arena; deepest inset=${deepestInset.toFixed(2)}px`,
+  );
+  assert.ok(
+    wallPinnedFrames < 90,
+    `ball should not visually slide along the side wall for most of a second; pinnedFrames=${wallPinnedFrames}`,
   );
 });

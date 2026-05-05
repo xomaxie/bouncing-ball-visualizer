@@ -316,6 +316,9 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
   const onBlackHoleCapture = typeof options.onBlackHoleCapture === 'function' ? options.onBlackHoleCapture : null;
 
   if (blackHole && checkBlackHoleCapture(ball, blackHole, onBlackHoleCapture)) return ball;
+  if (options.grazingWallDetach === true) {
+    applyGrazingWallDetach(ball, arena, gravity, options);
+  }
 
   if (blackHole && dt > 0) {
     const maxStep = fieldStepSize(dt, options);
@@ -339,9 +342,50 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
   ball.vy += ay * dt;
   applyDrag(ball, dt, drag);
   if (blackHole && checkBlackHoleCapture(ball, blackHole, onBlackHoleCapture)) return ball;
-  resolveCircleCollision(ball, arena, onCollision, restitution, tangentRetention, options);
+  resolveCircleCollision(ball, arena, onCollision, restitution, tangentRetention, {
+    ...options,
+    collisionGravity: gravity,
+  });
 
   return ball;
+}
+
+function applyGrazingWallDetach(ball, arena, gravity = { x: 0, y: 0 }, options = {}) {
+  const configured = Number(options.minWallBounceSpeed ?? 0);
+  if (!Number.isFinite(configured) || configured <= 0 || !ball) return false;
+
+  const dx = ball.x - arena.cx;
+  const dy = ball.y - arena.cy;
+  const dist = Math.hypot(dx, dy);
+  if (!Number.isFinite(dist) || dist <= 1e-9) return false;
+
+  const limit = arena.radius - ball.radius;
+  const inset = limit - dist;
+  const detachBand = Number(options.grazingWallDetachDistance ?? Math.max(1.6, ball.radius * 0.28));
+  if (inset < -1e-6 || inset > detachBand) return false;
+
+  const normal = { x: dx / dist, y: dy / dist };
+  const normalSpeed = ball.vx * normal.x + ball.vy * normal.y;
+  const tangentX = ball.vx - normalSpeed * normal.x;
+  const tangentY = ball.vy - normalSpeed * normal.y;
+  const tangentSpeed = Math.hypot(tangentX, tangentY);
+  const acceleration = accelerationAtPoint(ball, gravity);
+  const outwardAcceleration = Math.max(0, acceleration.x * normal.x + acceleration.y * normal.y);
+  const isGrazing = tangentSpeed >= 18 && normalSpeed > -configured * 0.36;
+  const isGravityPinned = outwardAcceleration > 12 && normalSpeed > -configured * 0.52;
+  if (!isGrazing && !isGravityPinned) return false;
+
+  const targetInwardSpeed = Math.min(
+    configured,
+    Math.max(configured * 0.70, tangentSpeed * 0.55, Math.sqrt(2 * outwardAcceleration * configured * 0.16)),
+  );
+  const inwardSpeed = Math.max(0, -normalSpeed);
+  if (inwardSpeed >= targetInwardSpeed) return false;
+
+  const boost = targetInwardSpeed - inwardSpeed;
+  ball.vx -= normal.x * boost;
+  ball.vy -= normal.y * boost;
+  return true;
 }
 
 function applyDrag(ball, dt, drag = 0) {
@@ -366,7 +410,15 @@ function resolveCircleCollision(ball, arena, onCollision, restitution, tangentRe
       const reflected = reflectVelocity({ x: ball.vx, y: ball.vy }, normal, restitution, tangentRetention);
       ball.vx = reflected.x;
       ball.vy = reflected.y;
-      applyMinimumWallBounce(ball, normal, outwardSpeed, options);
+      const collisionAcceleration = options.collisionGravity
+        ? accelerationAtPoint(ball, options.collisionGravity)
+        : null;
+      applyMinimumWallBounce(ball, normal, outwardSpeed, {
+        ...options,
+        outwardAcceleration: collisionAcceleration
+          ? collisionAcceleration.x * normal.x + collisionAcceleration.y * normal.y
+          : 0,
+      });
       onCollision({
         ball,
         x: ball.x,
@@ -384,11 +436,20 @@ function applyMinimumWallBounce(ball, normal, outwardSpeed, options = {}) {
   const tangentX = ball.vx - (ball.vx * normal.x + ball.vy * normal.y) * normal.x;
   const tangentY = ball.vy - (ball.vx * normal.x + ball.vy * normal.y) * normal.y;
   const tangentSpeed = Math.hypot(tangentX, tangentY);
-  if (tangentSpeed < 18 || outwardSpeed > configured * 0.75) return;
+  const outwardAcceleration = Math.max(0, Number(options.outwardAcceleration || 0));
+  const sideSlideNeedsBounce = tangentSpeed >= 18 && outwardSpeed <= configured * 0.75;
+  const gravityPinnedNeedsBounce = outwardAcceleration > 12 && outwardSpeed <= configured * 1.15;
+  if (!sideSlideNeedsBounce && !gravityPinnedNeedsBounce) return;
 
   const currentNormal = ball.vx * normal.x + ball.vy * normal.y;
   const inwardSpeed = Math.max(0, -currentNormal);
-  const targetInwardSpeed = Math.min(configured, Math.max(configured * 0.46, tangentSpeed * 0.42));
+  const gravityPinnedTarget = gravityPinnedNeedsBounce
+    ? Math.sqrt(2 * outwardAcceleration * configured * 0.16)
+    : 0;
+  const targetInwardSpeed = Math.min(
+    configured,
+    Math.max(configured * 0.46, tangentSpeed * 0.42, gravityPinnedTarget),
+  );
   if (inwardSpeed >= targetInwardSpeed) return;
   const boost = targetInwardSpeed - inwardSpeed;
   ball.vx -= normal.x * boost;
@@ -400,7 +461,10 @@ function integrateBallStepInCircle(ball, dt, arena, gravity, onCollision, option
   applyDrag(ball, dt, options.drag);
   const blackHole = activeBlackHole(gravity);
   if (blackHole && checkBlackHoleCapture(ball, blackHole, options.onBlackHoleCapture)) return ball;
-  resolveCircleCollision(ball, arena, onCollision, options.restitution, options.tangentRetention, options);
+  resolveCircleCollision(ball, arena, onCollision, options.restitution, options.tangentRetention, {
+    ...options,
+    collisionGravity: gravity,
+  });
   return ball;
 }
 
