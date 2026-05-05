@@ -141,16 +141,23 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
   assert.match(app, /drawImpactParticles\(\)/);
 });
 
-test('demo draws a small black hole and enables real field-solved maneuvers', async () => {
+test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-black-hole-v1/);
+  assert.match(html, /app\.js\?v=20260505-black-hole-particles-v1/);
+  assert.match(app, /black-hole-particles\.js/);
+  assert.match(app, /createBlackHoleParticleSystem/);
+  assert.match(app, /advanceBlackHoleParticles/);
+  assert.match(app, /blackHoleParticleSnapshots/);
   assert.match(app, /function drawBlackHole/);
-  assert.match(app, /blackHoleSolveIterations/);
-  assert.match(app, /blackHoleSolveTolerancePx/);
+  assert.match(app, /blackHoleSolveIterations:\s*7/);
+  assert.match(app, /blackHoleSolveTolerancePx:\s*3\.75/);
+  assert.match(app, /arena\.radius \* arena\.radius \* 92/);
+  assert.match(app, /arena\.radius \* 0\.115/);
   assert.match(app, /drawBlackHole\(\)/);
   assert.match(app, /blackHoleSegments/);
   assert.match(app, /maxBlackHoleMissDistance/);
+  assert.doesNotMatch(app, /const shadow = ctx\.createRadialGradient/, 'black hole should be rendered as orbiting particles, not a static gradient image');
 });
 
 test('source metadata remains available without visual chrome', async () => {

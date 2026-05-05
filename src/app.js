@@ -6,11 +6,17 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-black-hole-v1';
+import { planSong } from './solver.js?v=20260505-black-hole-particles-v1';
 import { advancePlayback, createPlaybackState } from './playback.js?v=20260504-personality-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260504-personality-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-black-hole-particles-v1';
+import {
+  advanceBlackHoleParticles,
+  blackHoleParticleSnapshots,
+  createBlackHoleParticleSystem,
+} from './black-hole-particles.js?v=20260505-black-hole-particles-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 
@@ -71,6 +77,8 @@ let arenaRefreshResolvers = [];
 let visualEffects = createVisualEffectsState({ bandCount: 56 });
 let lightCanvas = null;
 let lightCtx = null;
+let blackHoleParticleSystem = null;
+let blackHoleParticleKey = '';
 let currentSceneMode = sceneModeForEnergy();
 const lightBufferScale = 0.36;
 const speedValues = [0.35, 1, 1.75];
@@ -114,19 +122,19 @@ function solverOptions() {
     energyAdaptive: true,
     energyThreshold: 0.52,
     pathSamples: 14,
-    fieldStep: 1 / 75,
-    fieldMaxSteps: 160,
-    blackHoleSolveIterations: 4,
-    blackHoleSolveTolerancePx: 5,
+    fieldStep: 1 / 100,
+    fieldMaxSteps: 240,
+    blackHoleSolveIterations: 7,
+    blackHoleSolveTolerancePx: 3.75,
     largeTrackReusableCandidateLimit: 4,
     largeTrackRecycleFallbackCandidateLimit: 12,
     blackHole: {
       enabled: true,
-      offsetX: 0,
-      offsetY: -0.045,
+      offsetX: 0.055,
+      offsetY: -0.06,
       radius: Math.max(7, arena.radius * 0.043),
-      strength: arena.radius * arena.radius * 46,
-      softeningRadius: Math.max(28, arena.radius * 0.18),
+      strength: arena.radius * arena.radius * 92,
+      softeningRadius: Math.max(24, arena.radius * 0.115),
       eventHorizonRadius: Math.max(8, arena.radius * 0.045),
     },
   };
@@ -176,6 +184,38 @@ function queueArenaRefresh({ rebuild = false } = {}) {
   });
 }
 
+function resetBlackHoleParticles() {
+  blackHoleParticleSystem = null;
+  blackHoleParticleKey = '';
+}
+
+function blackHoleSystemKey(blackHole) {
+  if (!blackHole) return '';
+  return [blackHole.x, blackHole.y, blackHole.radius, blackHole.eventHorizonRadius]
+    .map((value) => Number(value || 0).toFixed(3))
+    .join(':');
+}
+
+function ensureBlackHoleParticleSystem() {
+  const blackHole = plan?.blackHole;
+  if (!blackHole) {
+    resetBlackHoleParticles();
+    return null;
+  }
+  const key = blackHoleSystemKey(blackHole);
+  if (!blackHoleParticleSystem || blackHoleParticleKey !== key) {
+    blackHoleParticleSystem = createBlackHoleParticleSystem(blackHole, { count: 118, seed: key });
+    blackHoleParticleKey = key;
+  }
+  return blackHoleParticleSystem;
+}
+
+function advanceBlackHoleVisual(dt) {
+  const system = ensureBlackHoleParticleSystem();
+  if (!system) return;
+  advanceBlackHoleParticles(system, dt, currentEnergyState());
+}
+
 function resetVisualEffects() {
   visualEffects = createVisualEffectsState({ bandCount: 56 });
   currentSceneMode = sceneModeForEnergy();
@@ -206,6 +246,8 @@ function buildPlan() {
     color: track.color || trackColor(index),
   }));
   plan = planSong(tracks, arena, solverOptions());
+  resetBlackHoleParticles();
+  ensureBlackHoleParticleSystem();
   resetSimulation(false);
   renderTimeline();
   renderPanels();
@@ -637,43 +679,53 @@ function drawWall() {
 function drawBlackHole() {
   const blackHole = plan?.blackHole;
   if (!blackHole) return;
+  const system = ensureBlackHoleParticleSystem();
+  const particles = blackHoleParticleSnapshots(system, blackHole);
   const radius = Math.max(4, blackHole.radius || arena.radius * 0.045);
-  const pulse = 0.5 + Math.sin(performance.now() * 0.0023) * 0.5;
+  const horizon = Math.max(radius * 1.02, blackHole.eventHorizonRadius || radius * 1.08);
+  const pulse = 0.5 + Math.sin(performance.now() * 0.0034) * 0.5;
+
   ctx.save();
-  ctx.translate(blackHole.x, blackHole.y);
-  ctx.globalCompositeOperation = 'source-over';
-
-  const shadow = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius * 5.5);
-  shadow.addColorStop(0, 'rgba(0,0,0,0.98)');
-  shadow.addColorStop(0.34, 'rgba(0,0,0,0.72)');
-  shadow.addColorStop(0.72, 'rgba(0,0,0,0.18)');
-  shadow.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = shadow;
   ctx.beginPath();
-  ctx.arc(0, 0, radius * 5.5, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.arc(arena.cx, arena.cy, arena.radius - 1, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.globalCompositeOperation = 'lighter';
 
-  ctx.globalCompositeOperation = 'screen';
-  ctx.lineWidth = 1.1;
-  for (let ring = 0; ring < 3; ring += 1) {
-    const ringRadius = radius * (1.42 + ring * 0.36 + pulse * 0.035);
-    ctx.globalAlpha = 0.18 - ring * 0.035;
-    ctx.strokeStyle = ring % 2 === 0 ? 'rgba(119,167,255,0.82)' : 'rgba(193,137,255,0.65)';
+  for (const particle of particles) {
+    const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
+    if (alpha <= 0.02) continue;
+    ctx.globalAlpha = alpha * 0.62;
+    ctx.strokeStyle = colorWithAlpha(particle.color, 0.74);
+    ctx.lineWidth = Math.max(0.45, particle.size * 0.62);
     ctx.beginPath();
-    ctx.ellipse(0, 0, ringRadius * 1.48, ringRadius * 0.54, -0.18, 0, Math.PI * 2);
+    ctx.moveTo(particle.tailX, particle.tailY);
+    ctx.lineTo(particle.x, particle.y);
     ctx.stroke();
+
+    ctx.globalAlpha = alpha * 0.52;
+    ctx.fillStyle = colorWithAlpha(particle.color, 0.68);
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, Math.max(0.45, particle.size * 0.86), 0, Math.PI * 2);
+    ctx.fill();
   }
 
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000';
   ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.arc(blackHole.x, blackHole.y, horizon * 1.34, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(232,238,255,0.20)';
-  ctx.lineWidth = 1.2;
+
+  ctx.strokeStyle = `rgba(232,238,255,${0.16 + pulse * 0.06})`;
+  ctx.lineWidth = 1.05;
   ctx.beginPath();
-  ctx.arc(0, 0, radius * 1.05, 0, Math.PI * 2);
+  ctx.arc(blackHole.x, blackHole.y, horizon * (1.08 + pulse * 0.025), 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(119,167,255,${0.08 + pulse * 0.045})`;
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.ellipse(blackHole.x, blackHole.y, radius * 4.6, radius * 1.42, -0.22, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
@@ -737,8 +789,8 @@ function render() {
   if (!plan || !sim) return;
   drawExteriorFrequencyField();
   drawWall();
-  drawBlackHole();
   drawLightSystem();
+  drawBlackHole();
   drawBalls();
   drawImpactFrames();
   drawImpactParticles();
@@ -807,6 +859,36 @@ function renderPanels() {
   `).join('') || '<li>Wall hits will appear here.</li>';
 }
 
+function blackHoleBendStats() {
+  const segments = (plan?.events || []).filter((segment) => segment.flightField === 'black-hole' && segment.duration > 0 && segment.blackHole);
+  if (!segments.length) return { median: 0, p90: 0, max: 0 };
+  const bends = segments.map((segment) => {
+    const samples = fieldPathSamples(
+      segment.start,
+      segment.velocity,
+      segment.duration,
+      { x: segment.gravityX || 0, y: segment.gravityY || 0, blackHole: segment.blackHole },
+      20,
+      { fieldStep: plan.options?.fieldStep, fieldMaxSteps: plan.options?.fieldMaxSteps },
+    );
+    const first = samples[0];
+    const last = samples.at(-1);
+    let maxBend = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const unit = index / Math.max(1, samples.length - 1);
+      const straightX = first.x + (last.x - first.x) * unit;
+      const straightY = first.y + (last.y - first.y) * unit;
+      maxBend = Math.max(maxBend, Math.hypot(samples[index].x - straightX, samples[index].y - straightY));
+    }
+    return maxBend;
+  }).sort((a, b) => a - b);
+  return {
+    median: bends[Math.floor((bends.length - 1) * 0.5)] || 0,
+    p90: bends[Math.floor((bends.length - 1) * 0.9)] || 0,
+    max: bends.at(-1) || 0,
+  };
+}
+
 window.MusicVisualizerDebug = {
   stats: () => ({
     source: sourceLabel,
@@ -833,6 +915,8 @@ window.MusicVisualizerDebug = {
     blackHole: plan?.blackHole ?? null,
     blackHoleSegments: plan?.events?.filter((segment) => segment.flightField === 'black-hole').length ?? 0,
     maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
+    blackHoleBendPx: blackHoleBendStats(),
+    blackHoleParticleCount: blackHoleParticleSystem?.particles?.length ?? 0,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
     adaptiveSegments: plan?.events?.filter((segment) => (segment.energyIntensity || 0) > 0)?.length ?? 0,
@@ -856,6 +940,7 @@ function escapeHtml(value) {
 function frame(now) {
   const raw = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
+  advanceBlackHoleVisual(raw);
   if (running) {
     const audioTimeline = hasBackingAudio() && audio.enabled ? audio.backingTimelineTime() : null;
     let budget = Number.isFinite(audioTimeline)
