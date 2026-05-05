@@ -54,10 +54,12 @@ test('decayVisualEffects fades frequency energy and removes spent impact frames'
   registerNoteImpact(effects, { midi: 72, velocity: 1, x: 0, y: 0, color: '#fff' });
   const bin = midiToFrequencyBin(72, 12);
   const before = effects.frequencyBands[bin];
+  const blackHolePulseBefore = effects.blackHolePulse;
 
   decayVisualEffects(effects, 0.18);
 
   assert.ok(effects.frequencyBands[bin] < before, 'frequency energy should decay immediately');
+  assert.ok(effects.blackHolePulse < blackHolePulseBefore, 'black hole impact pulse should decay immediately');
   assert.ok(effects.impactFrames.length > 0, 'impact frame should survive a tiny fraction of a second');
 
   decayVisualEffects(effects, 2.0);
@@ -66,6 +68,18 @@ test('decayVisualEffects fades frequency energy and removes spent impact frames'
   assert.equal(effects.particles.length, 0, 'spent impact particles should be removed');
   assert.ok(effects.frequencyBands.every((value) => value >= 0 && value < 0.02), 'frequency energy should settle near zero');
   assert.equal(effects.screenImpact, 0);
+  assert.equal(effects.blackHolePulse, 0);
+});
+
+test('registerNoteImpact drives a separate black-hole energy pulse from note amplitude', () => {
+  const quiet = createVisualEffectsState({ bandCount: 24 });
+  const loud = createVisualEffectsState({ bandCount: 24 });
+
+  registerNoteImpact(quiet, { midi: 48, velocity: 0.22, x: 120, y: 160, color: '#78ddff' });
+  registerNoteImpact(loud, { midi: 48, velocity: 1.0, x: 120, y: 160, color: '#78ddff' });
+
+  assert.ok(quiet.blackHolePulse > 0, 'quiet notes should still nudge the black-hole energy');
+  assert.ok(loud.blackHolePulse > quiet.blackHolePulse * 1.6, 'loud notes should create a much stronger black-hole energy pulse');
 });
 
 test('midiToFrequencyBin maps higher notes to higher bins and clamps extremes', () => {

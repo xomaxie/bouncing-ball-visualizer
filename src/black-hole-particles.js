@@ -45,6 +45,20 @@ function energyIntensity(energy = {}) {
   return clamp(Number(energy?.energy ?? 0), 0, 1);
 }
 
+function energyPulse(energy = {}) {
+  return clamp(Number(energy?.pulse ?? energy?.blackHolePulse ?? energy?.burst ?? 0), 0, 1.15);
+}
+
+function displayPowerForEnergy(energy = {}) {
+  const intensity = energyIntensity(energy);
+  const energyLevel = clamp(Number(energy?.energy ?? intensity), 0, 1);
+  const pulse = energyPulse(energy);
+  const sectionLift = clamp((energyLevel - 0.24) * 0.78, 0, 1);
+  const basePower = Math.max(intensity, sectionLift);
+  const pulseBoost = pulse * (0.50 + Math.max(0, 1 - basePower) * 0.38);
+  return clamp(Math.max(pulse, basePower + pulseBoost), 0, 1.15);
+}
+
 function resetParticle(particle, system, rng) {
   const inner = system.innerRadius;
   const outer = system.outerRadius;
@@ -102,9 +116,9 @@ export function createBlackHoleParticleSystem(blackHole = {}, { count = 96, seed
 export function advanceBlackHoleParticles(system, dt = 0, energy = {}) {
   if (!system?.particles?.length) return system;
   const safeDt = Math.max(0, Math.min(0.08, Number(dt) || 0));
-  const intensity = clamp(Number(energy?.intensity ?? energy?.energy ?? 0), 0, 1.25);
-  const angularBoost = 1.0 + intensity * 0.72;
-  const pullBoost = 1.0 + intensity * 0.38;
+  const power = displayPowerForEnergy(energy);
+  const angularBoost = 0.88 + power * 1.48;
+  const pullBoost = 0.92 + power * 0.82;
   const innerLimit = system.innerRadius;
 
   for (const particle of system.particles) {
@@ -123,11 +137,15 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
   if (!system?.particles?.length) return [];
   const cx = Number(blackHole.x || 0);
   const cy = Number(blackHole.y || 0);
-  const intensity = energyIntensity(energy);
-  const energyLevel = clamp(Number(energy?.energy ?? intensity), 0, 1);
-  const visibleFraction = clamp(0.52 + intensity * 0.48, 0.48, 1);
-  const radiusScale = 0.92 + energyLevel * 0.08 + intensity * 0.42;
-  const alphaScale = 0.70 + intensity * 0.34;
+  const baseIntensity = energyIntensity(energy);
+  const energyLevel = clamp(Number(energy?.energy ?? baseIntensity), 0, 1);
+  const pulse = energyPulse(energy);
+  const displayPower = displayPowerForEnergy(energy);
+  const visibleFraction = clamp(0.28 + displayPower * 0.72, 0.24, 1);
+  const radiusScale = 0.68 + energyLevel * 0.05 + displayPower * 0.92 + pulse * 0.18;
+  const alphaScale = 0.38 + displayPower * 0.82 + pulse * 0.26;
+  const particleSizeScale = 0.76 + displayPower * 0.84 + pulse * 0.28;
+  const tailScale = 0.72 + displayPower * 1.12 + pulse * 0.36;
   const visibleCount = Math.max(8, Math.min(system.particles.length, Math.round(system.particles.length * visibleFraction)));
   const rotation = -0.22;
   const cosR = Math.cos(rotation);
@@ -140,7 +158,7 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
     const localX = Math.cos(angle) * radius + Math.cos(angle * 2.1) * wobble;
     const localY = Math.sin(angle) * radius * Number(particle.tilt || 0.42) + Math.sin(angle * 1.7) * wobble * 0.35;
     const tangentAngle = angle + Math.PI / 2;
-    const tailLength = (5.5 + particle.size * 4.2) * (1 + system.radius / Math.max(system.radius * 2, radius));
+    const tailLength = (5.5 + particle.size * 4.2) * (1 + system.radius / Math.max(system.radius * 2, radius)) * tailScale;
     const rotatedX = localX * cosR - localY * sinR;
     const rotatedY = localX * sinR + localY * cosR;
     const tx = Math.cos(tangentAngle) * tailLength;
@@ -155,7 +173,7 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
       tailX: cx + rotatedX - rotatedTailX,
       tailY: cy + rotatedY - rotatedTailY,
       radius,
-      size: particle.size,
+      size: particle.size * particleSizeScale,
       alpha: clamp(particle.alpha * alphaScale * (1.16 - Math.min(0.58, radius / (system.outerRadius * radiusScale))), 0.04, 1),
       color: particle.color,
     };

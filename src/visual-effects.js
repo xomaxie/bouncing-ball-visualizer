@@ -16,6 +16,7 @@ export function createVisualEffectsState({ bandCount = 56 } = {}) {
     impactFrames: [],
     particles: [],
     screenImpact: 0,
+    blackHolePulse: 0,
   };
 }
 
@@ -104,6 +105,9 @@ export function registerNoteImpact(effects, impact = {}) {
   effects.particles.push(...createImpactParticles({ midi, velocity, x, y, color, energy, sceneMode, personality }));
   effects.particles = effects.particles.slice(-420);
   effects.screenImpact = clamp(effects.screenImpact + energy * 0.18 * impactMultiplier, 0, 0.52);
+  const amplitude = clamp(Number(velocity || 0.7), 0.05, 1.15);
+  const pulse = energy * (0.24 + amplitude * 0.42) * Math.sqrt(impactMultiplier);
+  effects.blackHolePulse = clamp(Math.max(Number(effects.blackHolePulse || 0), pulse) + pulse * 0.22, 0, 1.15);
   return effects;
 }
 
@@ -133,5 +137,7 @@ export function decayVisualEffects(effects, dt) {
   effects.particles = (effects.particles || []).filter((particle) => particle.life > 0);
   effects.screenImpact = Math.max(0, effects.screenImpact - safeDt * 5.6);
   if (effects.screenImpact < 0.002) effects.screenImpact = 0;
+  effects.blackHolePulse = Math.max(0, Number(effects.blackHolePulse || 0) * Math.exp(-safeDt * 3.35) - safeDt * 0.018);
+  if (effects.blackHolePulse < 0.002) effects.blackHolePulse = 0;
   return effects;
 }

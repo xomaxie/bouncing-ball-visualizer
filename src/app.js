@@ -6,17 +6,17 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-centered-energy-black-hole-v1';
+import { planSong } from './solver.js?v=20260505-perceptual-black-hole-energy-v1';
 import { advancePlayback, createPlaybackState } from './playback.js?v=20260504-personality-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
-import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260504-personality-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-centered-energy-black-hole-v1';
+import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-perceptual-black-hole-energy-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-perceptual-black-hole-energy-v1';
 import {
   advanceBlackHoleParticles,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-centered-energy-black-hole-v1';
+} from './black-hole-particles.js?v=20260505-perceptual-black-hole-energy-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 
@@ -213,7 +213,7 @@ function ensureBlackHoleParticleSystem() {
 function advanceBlackHoleVisual(dt) {
   const system = ensureBlackHoleParticleSystem();
   if (!system) return;
-  advanceBlackHoleParticles(system, dt, currentEnergyState());
+  advanceBlackHoleParticles(system, dt, blackHoleEnergyState());
 }
 
 function resetVisualEffects() {
@@ -227,17 +227,36 @@ function currentEnergyState() {
     : { energy: 0, intensity: 0, level: 'low' };
 }
 
-function blackHoleVisualState(blackHole = plan?.blackHole, energyState = currentEnergyState()) {
+function blackHoleEnergyState() {
+  const state = currentEnergyState();
+  const pulse = Math.max(0, Math.min(1.15, Number(visualEffects?.blackHolePulse ?? 0)));
+  const energy = Math.max(0, Math.min(1, Math.max(Number(state.energy ?? 0), pulse * 0.86)));
+  const intensity = Math.max(0, Math.min(1, Number(state.intensity ?? 0)));
+  return {
+    ...state,
+    energy,
+    intensity,
+    pulse,
+  };
+}
+
+function blackHoleVisualState(blackHole = plan?.blackHole, energyState = blackHoleEnergyState()) {
   if (!blackHole) return null;
   const energy = Math.max(0, Math.min(1, Number(energyState?.energy ?? 0)));
   const intensity = Math.max(0, Math.min(1, Number(energyState?.intensity ?? energy)));
-  const sizeScale = 0.96 + energy * 0.08 + intensity * 0.36;
-  const density = Math.max(0.52, Math.min(1, 0.52 + intensity * 0.48));
+  const pulse = Math.max(0, Math.min(1.15, Number(energyState?.pulse ?? 0)));
+  const sectionLift = Math.max(0, Math.min(1, (energy - 0.24) * 0.78));
+  const basePower = Math.max(intensity, sectionLift);
+  const power = Math.max(pulse, Math.min(1.15, basePower + pulse * (0.50 + Math.max(0, 1 - basePower) * 0.38)));
+  const sizeScale = 0.80 + energy * 0.05 + power * 0.82 + pulse * 0.22;
+  const density = Math.max(0.26, Math.min(1, 0.28 + power * 0.72));
   const baseRadius = Math.max(4, blackHole.radius || arena.radius * 0.045);
   const baseHorizon = Math.max(baseRadius * 1.02, blackHole.eventHorizonRadius || baseRadius * 1.08);
   return {
     energy,
     intensity,
+    pulse,
+    power,
     sizeScale,
     density,
     radius: baseRadius * sizeScale,
@@ -698,12 +717,13 @@ function drawBlackHole() {
   const blackHole = plan?.blackHole;
   if (!blackHole) return;
   const system = ensureBlackHoleParticleSystem();
-  const energyState = currentEnergyState();
+  const energyState = blackHoleEnergyState();
   const visual = blackHoleVisualState(blackHole, energyState);
   const particles = blackHoleParticleSnapshots(system, blackHole, energyState);
   const radius = visual?.radius ?? Math.max(4, blackHole.radius || arena.radius * 0.045);
   const horizon = visual?.horizon ?? Math.max(radius * 1.02, blackHole.eventHorizonRadius || radius * 1.08);
   const pulse = 0.5 + Math.sin(performance.now() * 0.0034) * 0.5;
+  const power = Math.max(0, Math.min(1.15, Number(visual?.power ?? visual?.intensity ?? 0)));
 
   ctx.save();
   ctx.beginPath();
@@ -714,7 +734,7 @@ function drawBlackHole() {
   for (const particle of particles) {
     const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
     if (alpha <= 0.02) continue;
-    ctx.globalAlpha = alpha * (0.46 + (visual?.intensity ?? 0) * 0.18);
+    ctx.globalAlpha = alpha * (0.22 + power * 0.50);
     ctx.strokeStyle = colorWithAlpha(particle.color, 0.74);
     ctx.lineWidth = Math.max(0.45, particle.size * 0.62);
     ctx.beginPath();
@@ -722,7 +742,7 @@ function drawBlackHole() {
     ctx.lineTo(particle.x, particle.y);
     ctx.stroke();
 
-    ctx.globalAlpha = alpha * (0.38 + (visual?.intensity ?? 0) * 0.16);
+    ctx.globalAlpha = alpha * (0.18 + power * 0.38);
     ctx.fillStyle = colorWithAlpha(particle.color, 0.68);
     ctx.beginPath();
     ctx.arc(particle.x, particle.y, Math.max(0.45, particle.size * 0.86), 0, Math.PI * 2);
@@ -736,14 +756,14 @@ function drawBlackHole() {
   ctx.arc(blackHole.x, blackHole.y, horizon * 1.34, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = `rgba(232,238,255,${0.12 + pulse * 0.05 + (visual?.intensity ?? 0) * 0.05})`;
+  ctx.strokeStyle = `rgba(232,238,255,${0.08 + pulse * 0.035 + power * 0.11})`;
   ctx.lineWidth = 1.05;
   ctx.beginPath();
   ctx.arc(blackHole.x, blackHole.y, horizon * (1.08 + pulse * 0.025), 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.strokeStyle = `rgba(119,167,255,${0.055 + pulse * 0.035 + (visual?.intensity ?? 0) * 0.05})`;
-  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = `rgba(119,167,255,${0.028 + pulse * 0.026 + power * 0.12})`;
+  ctx.lineWidth = 0.55 + power * 0.65;
   ctx.beginPath();
   ctx.ellipse(blackHole.x, blackHole.y, radius * 4.6, radius * 1.42, -0.22, 0, Math.PI * 2);
   ctx.stroke();
@@ -937,9 +957,11 @@ window.MusicVisualizerDebug = {
     maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
     blackHoleBendPx: blackHoleBendStats(),
     blackHoleParticleCount: blackHoleParticleSystem?.particles?.length ?? 0,
-    blackHoleParticleVisibleCount: plan?.blackHole ? blackHoleParticleSnapshots(blackHoleParticleSystem, plan.blackHole, currentEnergyState()).length : 0,
+    blackHoleParticleVisibleCount: plan?.blackHole ? blackHoleParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState()).length : 0,
     blackHoleVisualScale: blackHoleVisualState()?.sizeScale ?? 1,
     blackHoleVisualDensity: blackHoleVisualState()?.density ?? 0,
+    blackHoleVisualPower: blackHoleVisualState()?.power ?? 0,
+    blackHolePulse: visualEffects?.blackHolePulse ?? 0,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
     adaptiveSegments: plan?.events?.filter((segment) => (segment.energyIntensity || 0) > 0)?.length ?? 0,

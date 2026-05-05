@@ -63,6 +63,43 @@ test('black hole accretion display grows denser and wider with song energy', asy
   );
 
   assert.ok(calm.length < surge.length, `expected high-energy display to show more particles, calm=${calm.length} surge=${surge.length}`);
+  assert.ok(calm.length <= 44, `calm sections should leave the black hole sparse enough to notice energy changes, got ${calm.length}`);
   assert.ok(surge.length >= 88, `expected surge to use most of the particle system, got ${surge.length}`);
-  assert.ok(maxDistanceFromCenter(surge) > maxDistanceFromCenter(calm) * 1.16, 'high energy should make the accretion field visibly larger');
+  assert.ok(
+    maxDistanceFromCenter(surge) > maxDistanceFromCenter(calm) * 1.65,
+    'high energy should make the accretion field dramatically larger, not just subtly wider',
+  );
+});
+
+test('recent impacts can punch up the black hole even when rolling section energy is flat', async () => {
+  const { createBlackHoleParticleSystem, blackHoleParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 96, seed: 'impact-pulse-test' });
+
+  const steady = blackHoleParticleSnapshots(system, blackHole, { energy: 0.48, intensity: 0, level: 'medium', pulse: 0 });
+  const punched = blackHoleParticleSnapshots(system, blackHole, { energy: 0.48, intensity: 0, level: 'medium', pulse: 0.92 });
+
+  const averageAlpha = (particles) => particles.reduce((sum, particle) => sum + particle.alpha, 0) / particles.length;
+  const maxDistanceFromCenter = (particles) => Math.max(
+    0,
+    ...particles.map((particle) => Math.hypot(particle.x - blackHole.x, particle.y - blackHole.y)),
+  );
+
+  assert.ok(punched.length >= steady.length * 1.8, `impact pulse should densify the black hole, steady=${steady.length} punched=${punched.length}`);
+  assert.ok(maxDistanceFromCenter(punched) > maxDistanceFromCenter(steady) * 1.45, 'impact pulse should visibly expand the accretion field');
+  assert.ok(averageAlpha(punched) > averageAlpha(steady) * 1.35, 'impact pulse should make the particle field visibly brighter');
+});
+
+test('moderate impact pulses still read over already-high section energy', async () => {
+  const { createBlackHoleParticleSystem, blackHoleParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 96, seed: 'high-energy-pulse-test' });
+
+  const rollingHigh = blackHoleParticleSnapshots(system, blackHole, { energy: 0.82, intensity: 0.62, level: 'high', pulse: 0 });
+  const withBeatPulse = blackHoleParticleSnapshots(system, blackHole, { energy: 0.82, intensity: 0.62, level: 'high', pulse: 0.38 });
+  const maxDistanceFromCenter = (particles) => Math.max(
+    0,
+    ...particles.map((particle) => Math.hypot(particle.x - blackHole.x, particle.y - blackHole.y)),
+  );
+
+  assert.ok(withBeatPulse.length >= rollingHigh.length + 16, `beat pulses should add visible density even during high-energy sections, high=${rollingHigh.length} pulse=${withBeatPulse.length}`);
+  assert.ok(maxDistanceFromCenter(withBeatPulse) > maxDistanceFromCenter(rollingHigh) * 1.18, 'beat pulses should visibly expand the black hole over the rolling high-energy baseline');
 });
