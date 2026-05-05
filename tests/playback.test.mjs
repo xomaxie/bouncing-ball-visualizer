@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { parseMidiFile } from '../src/midi.js';
 import { planTrack } from '../src/solver.js';
 import { fieldPathSamples, sampleBlackHoleOrbit, simulatePosition } from '../src/physics.js';
 import { advancePlayback, createPlaybackState, hitPlaybackSegment } from '../src/playback.js';
 
 const arena = { cx: 320, cy: 260, radius: 210 };
+
+async function loadBachSampleTracks() {
+  const data = await readFile(new URL('../assets/midi/bach-bwv846-guitar-duo.mid', import.meta.url));
+  const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  return parseMidiFile(buffer).tracks;
+}
 
 test('advancePlayback keeps an active launched ball on its planned trajectory across frame boundaries', () => {
   const notes = [{ time: 1.0, duration: 0.2, midi: 60, velocity: 0.7 }];
@@ -102,7 +110,58 @@ test('advancePlayback uses the same black-hole field that the solver planned aga
   assert.ok(Math.hypot(ball.x - expected.x, ball.y - expected.y) < 0.75, `black-hole playback diverged from planned field path: ball=(${ball.x}, ${ball.y}) expected=(${expected.x}, ${expected.y})`);
 });
 
-test('advancePlayback retires one-shot helper balls on their next natural bounce after the final wall hit', () => {
+test('planned black-hole flights do not bounce off unplayed walls before their scheduled note hit', async () => {
+  const localArena = { cx: 640, cy: 410, radius: Math.min(1280, 820) * 0.39 };
+  const blackHole = {
+    enabled: true,
+    offsetX: 0,
+    offsetY: 0,
+    radius: Math.max(7, localArena.radius * 0.043),
+    strength: localArena.radius * localArena.radius * 92,
+    softeningRadius: Math.max(24, localArena.radius * 0.115),
+    eventHorizonRadius: Math.max(8, localArena.radius * 0.045),
+  };
+  const tracks = await loadBachSampleTracks();
+  const { planSong } = await import('../src/solver.js');
+  const plannedSong = planSong(tracks, localArena, {
+    gravityY: 160,
+    maxSpeed: 1550,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    recoveryTime: 0.06,
+    energyAdaptive: true,
+    energyThreshold: 0.52,
+    pathSamples: 14,
+    fieldStep: 1 / 100,
+    fieldMaxSteps: 240,
+    blackHoleSolveIterations: 7,
+    blackHoleSolveTolerancePx: 3.75,
+    largeTrackReusableCandidateLimit: 4,
+    largeTrackRecycleFallbackCandidateLimit: 12,
+    blackHole,
+  });
+  const sim = createPlaybackState(plannedSong, localArena);
+  let hits = 0;
+  const collisions = [];
+
+  while (sim.time < 2 && hits < 5) {
+    advancePlayback(sim, plannedSong, localArena, 1 / 120, {
+      onHit: () => { hits += 1; },
+      onCollision: (hit) => {
+        collisions.push({
+          time: sim.time,
+          ballId: hit.ball.id,
+          armedSegmentId: hit.ball.armedSegmentId,
+        });
+      },
+    });
+  }
+
+  assert.equal(hits, 5, 'test should exercise the first five scheduled Bach note hits');
+  assert.deepEqual(collisions, [], `scheduled flights should not produce unplayed wall collisions: ${JSON.stringify(collisions)}`);
+});
+
+test('advancePlayback retires one-shot helper balls immediately after their final note when no black-hole storage exists', () => {
   const notes = [{ time: 1.0, duration: 0.2, midi: 38, velocity: 0.7 }];
   const planned = planTrack({ id: 0, name: 'single helper', notes }, arena, {
     gravityY: 160,
@@ -126,26 +185,55 @@ test('advancePlayback retires one-shot helper balls on their next natural bounce
   const ball = sim.balls.get(segment.ballId);
 
   assert.equal(sim.segmentStates.get(segment.id).hit, true, 'segment should have hit before retirement');
-  assert.equal(ball.spawned, true, 'final-use helper ball should remain visible through the old timer window');
-  assert.equal(ball.retired, false, 'final-use helper ball should not retire before a later natural bounce');
+  assert.equal(ball.spawned, false, 'final-use helper ball should not stay around to make an unplayed wall bounce');
+  assert.equal(ball.retired, true, 'final-use helper ball should be marked retired immediately after the final note');
+  assert.equal(ball.retireOnNextCollision, false, 'retirement should not be armed through a later non-note wall collision');
+});
 
-  let postHitCollisions = 0;
-  while (sim.time < segment.arrivalTime + 4 && !ball.retired) {
-    advancePlayback(sim, plan, arena, 1 / 120, {
-      onCollision: () => {
-        if (sim.time > segment.arrivalTime + 1e-6) postHitCollisions += 1;
-      },
-    });
-  }
+test('final-use balls enter black-hole waiting orbit immediately after the note hit instead of bouncing off an unplayed wall', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 14 };
+  const segment = {
+    id: 'no-unplayed-wall:0',
+    ballId: 'no-unplayed-wall-ball',
+    trackId: 0,
+    trackName: 'no unplayed walls',
+    target: { x: arena.cx + arena.radius, y: arena.cy },
+    centerTarget: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    start: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    launchTime: 0,
+    arrivalTime: 0,
+    duration: 0,
+    velocity: { x: 360, y: -80 },
+    gravityY: 0,
+    wallColor: '#fff',
+    note: { time: 0, midi: 60, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'no-unplayed-wall-ball', events: [segment] }], segments: [segment] }],
+    events: [segment],
+    duration: 1,
+    options: { ballRadius: 8, gravityY: 0, blackHole },
+    blackHole,
+  };
+  const sim = createPlaybackState(plan, arena);
+  let unscheduledWallCollisions = 0;
 
-  assert.ok(postHitCollisions > 0, 'test should observe a natural bounce after the final note hit');
-  assert.equal(ball.spawned, false, 'final-use helper ball should be hidden on that next natural bounce');
-  assert.equal(ball.retired, true, 'final-use helper ball should be marked retired after that bounce');
+  advancePlayback(sim, plan, arena, 0.001, {
+    onCollision: () => { unscheduledWallCollisions += 1; },
+  });
+  const ball = sim.balls.get(segment.ballId);
+
+  assert.equal(sim.segmentStates.get(segment.id).hit, true, 'the scheduled note wall hit should still happen');
+  assert.equal(unscheduledWallCollisions, 0, 'parking should not require a later non-note wall collision');
+  assert.equal(ball.spawned, true, 'the parked ball should stay visible as waiting-room storage');
+  assert.equal(ball.retired, false, 'the parked ball should not despawn immediately');
+  assert.equal(ball.blackHoleOrbit?.active, true, 'final-use ball should immediately enter the black-hole waiting orbit');
+  assert.equal(ball.retireOnNextCollision, false, 'post-hit waiting-room parking should not arm an unplayed wall bounce');
 });
 
 
 
-test('final-use balls park in a decaying black-hole orbit before being destroyed', () => {
+test('final-use balls park in a decaying black-hole orbit immediately after the note hit before being destroyed', () => {
   const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 14 };
   const segment = {
     id: 'orbit:0',
@@ -174,11 +262,7 @@ test('final-use balls park in a decaying black-hole orbit before being destroyed
 
   advancePlayback(sim, plan, arena, 0.001);
   const ball = sim.balls.get(segment.ballId);
-  assert.equal(ball.retireOnNextCollision, true, 'final note hit should arm the post-bounce parking behavior');
-
-  while (sim.time < 4 && !ball.blackHoleOrbit) {
-    advancePlayback(sim, plan, arena, 1 / 120);
-  }
+  assert.equal(ball.retireOnNextCollision, false, 'final note hit should not arm an unplayed wall bounce');
 
   assert.equal(ball.spawned, true, 'parked ball should remain visible while orbiting the black hole');
   assert.equal(ball.retired, false, 'parked ball should not immediately despawn');

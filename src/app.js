@@ -5,20 +5,20 @@ import {
   transcribeAudioBufferWithBasicPitch,
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
-import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-tight-orbit-v1';
-import { planSong } from './solver.js?v=20260505-tight-orbit-v1';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-tight-orbit-v1';
+import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-note-wall-only-v2';
+import { planSong } from './solver.js?v=20260505-note-wall-only-v2';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-note-wall-only-v2';
 import { AudioEngine, soundButtonLabel } from './audio.js?v=20260505-library-storage-v2';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-tight-orbit-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-note-wall-only-v2';
 import {
   advanceBlackHoleParticles,
   blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-tight-orbit-v1';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-tight-orbit-v1';
+} from './black-hole-particles.js?v=20260505-note-wall-only-v2';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-note-wall-only-v2';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 import {
@@ -534,9 +534,10 @@ function stepSimulation(dt) {
     onLaunch: ({ ball, previous }) => {
       if (!previous?.spawned) energizeBallLight(ball, 0.15);
     },
-    onCollision: (hit) => {
-      energizeBallLight(hit.ball, 0.10);
-      sim.ghostHits.push({ x: hit.x, y: hit.y, color: hit.ball.color, life: 0.45 });
+    onCollision: () => {
+      // Unscheduled wall contacts are no longer a visual event. Note hits are
+      // rendered through onHit; idle balls should hold or enter black-hole
+      // storage instead of producing ghost wall bounces.
     },
     onHit: recordSegmentHit,
   });
@@ -1107,7 +1108,7 @@ window.MusicVisualizerDebug = {
     blackHoleSegments: plan?.events?.filter((segment) => segment.flightField === 'black-hole').length ?? 0,
     blackHoleSourceSegments: plan?.events?.filter((segment) => segment.spawnSource === 'black-hole').length ?? 0,
     blackHoleOrbitSourceSegments: plan?.events?.filter((segment) => segment.spawnSource === 'black-hole-orbit').length ?? 0,
-    blackHoleParkingSegments: plan?.events?.filter((segment) => segment.parkInBlackHoleAfterBounce).length ?? 0,
+    blackHoleParkingSegments: plan?.events?.filter((segment) => segment.parkInBlackHoleAfterHit || segment.parkInBlackHoleAfterBounce).length ?? 0,
     maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
     blackHoleBendPx: blackHoleBendStats(),
     blackHoleParticleCount: blackHoleParticleSystem?.particles?.length ?? 0,

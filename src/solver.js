@@ -5,7 +5,7 @@ import {
   pitchToWallTarget,
   summarizeTracks,
   wallColorForTarget,
-} from './music.js?v=20260505-tight-orbit-v1';
+} from './music.js?v=20260505-note-wall-only-v2';
 import { createEnergyProfile, dynamicSolverOptionsForEnergy, energyAtTime } from './energy.js';
 import {
   activeBlackHole,
@@ -18,7 +18,7 @@ import {
   simulateFieldState,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js?v=20260505-tight-orbit-v1';
+} from './physics.js?v=20260505-note-wall-only-v2';
 
 export const DEFAULT_SOLVER_OPTIONS = {
   ballRadius: 8,
@@ -28,6 +28,8 @@ export const DEFAULT_SOLVER_OPTIONS = {
   recoveryTime: 0.06,
   maxSpeed: 1550,
   pathSamples: 14,
+  pathCollisionStep: 1 / 120,
+  pathMaxSamples: 180,
   trackStagger: 0.37,
   maxSameHemisphereDot: 0,
   allowSameWallReturnArcs: true,
@@ -41,6 +43,7 @@ export const DEFAULT_SOLVER_OPTIONS = {
   retargetAtWallOnly: true,
   wallLaunchTolerance: 1.25,
   maxWallLaunchContacts: 6,
+  allowUnscheduledWallContacts: false,
   wallRetargetEpsilon: 1e-6,
   spawnPreferredFlightTime: 0.32,
   spawnMaxFlightTime: 0.42,
@@ -172,9 +175,18 @@ function planFieldFlight(start, target, launchTime, arrivalTime, options, gravit
 export function pathFitsArena(start, velocity, duration, arena, options = {}) {
   const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
   const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0, blackHole: activeBlackHole(opts) };
+  const collisionStep = Number(opts.pathCollisionStep ?? DEFAULT_SOLVER_OPTIONS.pathCollisionStep);
+  const maxSamples = Math.max(opts.pathSamples, Math.round(Number(opts.pathMaxSamples ?? DEFAULT_SOLVER_OPTIONS.pathMaxSamples)));
+  const timeBasedSamples = Number.isFinite(collisionStep) && collisionStep > 0
+    ? Math.ceil(Math.max(0, duration) / collisionStep)
+    : opts.pathSamples;
+  const sampleCount = Math.max(
+    opts.pathSamples,
+    Math.min(maxSamples, timeBasedSamples),
+  );
   const samples = gravity.blackHole
-    ? fieldPathSamples(start, velocity, duration, gravity, opts.pathSamples, opts)
-    : ballisticPathSamples(start, velocity, duration, gravity, opts.pathSamples);
+    ? fieldPathSamples(start, velocity, duration, gravity, sampleCount, opts)
+    : ballisticPathSamples(start, velocity, duration, gravity, sampleCount);
   const limit = arena.radius - opts.ballRadius;
   const horizonLimit = gravity.blackHole
     ? (Number(gravity.blackHole.eventHorizonRadius || 0) + Number(opts.ballRadius || 0))
@@ -605,11 +617,17 @@ function orbitReuseFlightCandidates(ball, wallTarget, target, noteTime, arena, o
   const latestLaunchTime = noteTime - opts.minFlightTime;
   if (latestLaunchTime < (ball.availableAt ?? 0) - 1e-9) return [];
 
-  const orbitEntries = predictBlackHoleOrbitEntries(ball.state, ball.availableAt, latestLaunchTime, arena, {
-    ...opts,
-    maxBlackHoleOrbitEntries: 1,
-  });
-  const orbitEntry = orbitEntries.find((entry) => entry.time >= (ball.availableAt ?? 0) - 1e-9);
+  const orbitEntries = opts.allowUnscheduledWallContacts
+    ? predictBlackHoleOrbitEntries(ball.state, ball.availableAt, latestLaunchTime, arena, {
+      ...opts,
+      maxBlackHoleOrbitEntries: 1,
+    })
+    : [{
+      time: ball.state.time ?? (ball.availableAt ?? 0),
+      start: { x: ball.state.x, y: ball.state.y },
+      kind: 'scheduled-hit',
+    }];
+  const orbitEntry = orbitEntries.find((entry) => entry.time >= (ball.state?.time ?? 0) - 1e-9);
   if (!orbitEntry) return [];
 
   const orbit = createBlackHoleOrbit({
@@ -741,7 +759,10 @@ export function planTrack(track, arena, options = {}) {
       if (trackOpts.retargetAtWallOnly) {
         const latestLaunchTime = note.time - noteOpts.minFlightTime;
         if (ball.state && isAtPlayableWall(ball.state, arena, trackOpts)) {
-          const launchTime = (ball.state.time ?? 0) + (trackOpts.wallRetargetEpsilon ?? 1e-6);
+          const launchTime = Math.max(
+            (ball.state.time ?? 0) + (trackOpts.wallRetargetEpsilon ?? 1e-6),
+            ball.availableAt ?? 0,
+          );
           if (launchTime <= latestLaunchTime + 1e-9) {
             launchCandidates.push({
               launchTime,
@@ -749,11 +770,13 @@ export function planTrack(track, arena, options = {}) {
             });
           }
         }
-        for (const launch of predictWallLaunches(ball.state, ball.availableAt, latestLaunchTime, arena, trackOpts)) {
-          launchCandidates.push({
-            launchTime: launch.time,
-            start: launch.start,
-          });
+        if (trackOpts.allowUnscheduledWallContacts) {
+          for (const launch of predictWallLaunches(ball.state, ball.availableAt, latestLaunchTime, arena, trackOpts)) {
+            launchCandidates.push({
+              launchTime: launch.time,
+              start: launch.start,
+            });
+          }
         }
       } else {
         const window = launchWindow(note.time, ball.availableAt, trackOpts);
@@ -942,6 +965,7 @@ export function planTrack(track, arena, options = {}) {
       orbitEntryKind: best.orbitEntryKind ?? null,
       orbitLaunchTime: best.orbitLaunchTime ?? null,
       orbitWait: best.orbitWait ?? null,
+      parkInBlackHoleAfterHit: false,
       parkInBlackHoleAfterBounce: false,
       idleGravityY: trackOpts.gravityY || 0,
       ballRadius: noteOpts.ballRadius,
@@ -956,7 +980,10 @@ export function planTrack(track, arena, options = {}) {
 
     if (best.spawnSource === 'black-hole-orbit') {
       const previousSegment = best.ball.events[best.ball.events.length - 1];
-      if (previousSegment) previousSegment.parkInBlackHoleAfterBounce = true;
+      if (previousSegment) {
+        previousSegment.parkInBlackHoleAfterHit = true;
+        previousSegment.parkInBlackHoleAfterBounce = false;
+      }
     }
 
     best.ball.events.push(segment);
@@ -972,6 +999,16 @@ export function planTrack(track, arena, options = {}) {
     });
     segments.push(segment);
   });
+
+  if (activeBlackHole(trackOpts)) {
+    for (const ball of balls) {
+      const lastSegment = ball.events.at(-1);
+      if (lastSegment) {
+        lastSegment.parkInBlackHoleAfterHit = true;
+        lastSegment.parkInBlackHoleAfterBounce = false;
+      }
+    }
+  }
 
   return {
     ...track,

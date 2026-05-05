@@ -5,7 +5,7 @@ import {
   reflectVelocity,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js?v=20260505-tight-orbit-v1';
+} from './physics.js?v=20260505-note-wall-only-v2';
 
 const EPSILON = 1e-7;
 
@@ -19,6 +19,7 @@ function parkBallInBlackHoleOrbit(ball, blackHole, currentTime = 0) {
   ball.retired = false;
   ball.retireOnNextCollision = false;
   ball.armedSegmentId = null;
+  ball.holdAtWall = false;
   ball.blackHoleCaptured = false;
   ball.blackHoleDestroyed = false;
   applyBlackHoleOrbitToBall(ball, orbit, blackHole, currentTime);
@@ -31,6 +32,7 @@ function destroyBallInBlackHole(ball) {
   ball.retired = true;
   ball.retireOnNextCollision = false;
   ball.armedSegmentId = null;
+  ball.holdAtWall = false;
   ball.blackHoleOrbit = null;
   ball.blackHoleOrbitProgress = 0;
   ball.blackHoleOrbitRadius = 0;
@@ -87,6 +89,7 @@ export function createPlaybackState(plan, arena) {
       ball.blackHoleOrbitRadius = 0;
       ball.blackHoleCaptured = false;
       ball.blackHoleDestroyed = false;
+      ball.holdAtWall = false;
       balls.set(planned.id, ball);
     }
 
@@ -135,6 +138,7 @@ export function launchPlaybackSegment(sim, segment) {
   ball.blackHoleOrbitRadius = 0;
   ball.blackHoleCaptured = false;
   ball.blackHoleDestroyed = false;
+  ball.holdAtWall = false;
 
   const state = sim.segmentStates.get(segment.id);
   if (state) state.launched = true;
@@ -165,12 +169,34 @@ export function hitPlaybackSegment(sim, plan, arena, segment) {
   if (segment.wallColor) ball.color = segment.wallColor;
   ball.armedSegmentId = null;
   ball.spawned = true;
-  ball.retireOnNextCollision = segment.id === ball.finalSegmentId || Boolean(segment.parkInBlackHoleAfterBounce);
+  ball.retired = false;
+  ball.holdAtWall = false;
+  ball.retireOnNextCollision = false;
+
+  const blackHole = segment.blackHole || plan.blackHole || plan.options?.blackHole || null;
+  const shouldParkInBlackHole = Boolean(blackHole)
+    && (Boolean(segment.parkInBlackHoleAfterHit) || segment.id === ball.finalSegmentId);
+  let parkedInBlackHoleOrbit = false;
+
+  if (shouldParkInBlackHole) {
+    parkedInBlackHoleOrbit = parkBallInBlackHoleOrbit(ball, blackHole, segment.arrivalTime ?? sim.time);
+  } else if (segment.id === ball.finalSegmentId || Boolean(segment.retireAfterHit)) {
+    ball.spawned = false;
+    ball.retired = true;
+    ball.vx = 0;
+    ball.vy = 0;
+  } else if (segment.parkInBlackHoleAfterBounce) {
+    ball.retireOnNextCollision = true;
+  } else {
+    ball.holdAtWall = true;
+    ball.vx = 0;
+    ball.vy = 0;
+  }
 
   const state = sim.segmentStates.get(segment.id);
   if (state) state.hit = true;
 
-  return { ball, segment };
+  return { ball, segment, parkedInBlackHoleOrbit };
 }
 
 function processEventsAtCurrentTime(sim, plan, arena, callbacks) {
@@ -185,7 +211,12 @@ function processEventsAtCurrentTime(sim, plan, arena, callbacks) {
     const state = sim.segmentStates.get(segment.id);
     if (!state || state.hit || segment.arrivalTime > sim.time + EPSILON) continue;
     const hit = hitPlaybackSegment(sim, plan, arena, segment);
-    if (hit) callbacks.onHit?.(hit);
+    if (hit) {
+      callbacks.onHit?.(hit);
+      if (hit.parkedInBlackHoleOrbit) {
+        callbacks.onBlackHoleOrbit?.({ ball: hit.ball, blackHole: plan.blackHole || plan.options?.blackHole || null, segment, time: segment.arrivalTime, hit: true });
+      }
+    }
   }
 }
 
@@ -225,6 +256,11 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
         break;
       }
 
+      if (ball.holdAtWall && !ball.armedSegmentId) {
+        elapsed = dt;
+        break;
+      }
+
       const subStep = ball.retireOnNextCollision
         ? Math.min(1 / 120, dt - elapsed)
         : dt - elapsed;
@@ -234,6 +270,7 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
         y: Number.isFinite(ball.gravityY) ? ball.gravityY : (gravity.y || 0),
         blackHole,
       };
+      const activeScheduledFlight = Boolean(ball.armedSegmentId);
       stepBallInCircle(ball, subStep, arena, ballGravity, (collision) => {
         callbacks.onCollision?.(collision);
         if (ball.retireOnNextCollision && !ball.armedSegmentId) {
@@ -250,6 +287,7 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
       }, {
         ...physicsOptions,
         grazingWallDetach: !ball.armedSegmentId && !ball.retireOnNextCollision,
+        wallCollisionMode: activeScheduledFlight ? 'clamp' : physicsOptions.wallCollisionMode,
         onBlackHoleCapture: (capture) => {
           if (ball.retireOnNextCollision && !ball.armedSegmentId) {
             if (parkBallInBlackHoleOrbit(ball, blackHole, collisionTime)) {

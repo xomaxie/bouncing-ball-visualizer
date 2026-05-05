@@ -327,13 +327,41 @@ test('planTrack redirects waiting-room black-hole orbit balls before spawning ne
   assert.equal(planned.ballCount, 1, `expected the idle first ball to be redirected from black-hole orbit instead of spawning a second helper; got ${planned.ballCount}`);
   assert.ok(redirected, 'later note should reuse the waiting-room orbit instead of creating a fresh black-hole helper');
   assert.equal(redirected.ballId, planned.segments[0].ballId, 'the redirected note should use the original ball');
-  assert.equal(planned.segments[0].parkInBlackHoleAfterBounce, true, 'previous segment should be marked to enter the black-hole waiting room');
+  assert.equal(planned.segments[0].parkInBlackHoleAfterHit, true, 'previous segment should be marked to enter the black-hole waiting room directly from its note hit');
+  assert.notEqual(planned.segments[0].parkInBlackHoleAfterBounce, true, 'previous segment should not require an unplayed wall bounce before entering the waiting room');
 
   const distanceFromHole = Math.hypot(redirected.start.x - blackHole.x, redirected.start.y - blackHole.y);
   assert.ok(
     distanceFromHole > blackHole.eventHorizonRadius + redirected.ballRadius,
     `redirect launch should start outside the event horizon, distance=${distanceFromHole}`,
   );
+});
+
+test('planTrack parks waiting-room balls from their scheduled note hit, not a later unplayed wall bounce', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
+  const notes = [
+    { time: 0.0, duration: 0.08, midi: 24, velocity: 0.76 },
+    { time: 2.5, duration: 0.08, midi: 24, velocity: 0.76 },
+  ];
+
+  const planned = planTrack({ id: 0, name: 'waiting-room note-hit parking', notes }, arena, {
+    gravityY: 160,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    spawnPreferredFlightTime: 0.32,
+    maxSpeed: 1550,
+    blackHole,
+    fieldStep: 1 / 240,
+    pathSamples: 30,
+    largeTrackNoteThreshold: 9999,
+  });
+  const first = planned.segments[0];
+  const redirected = planned.segments.find((segment) => segment.spawnSource === 'black-hole-orbit');
+
+  assert.ok(redirected, 'later note should still redirect the waiting-room ball');
+  assert.equal(first.parkInBlackHoleAfterHit, true, 'the first note should park directly from its scheduled wall hit');
+  assert.notEqual(first.parkInBlackHoleAfterBounce, true, 'parking should not depend on a later unplayed wall bounce');
+  assert.equal(redirected.orbitEntryTime, first.arrivalTime, 'waiting orbit should begin at the scheduled note-hit time');
 });
 
 test('planTrack does not redirect balls that were destroyed by crossing the black hole', () => {
@@ -351,6 +379,7 @@ test('planTrack does not redirect balls that were destroyed by crossing the blac
     maxSpeed: 1550,
     wallLaunchTolerance: -1,
     maxWallLaunchContacts: 0,
+    allowUnscheduledWallContacts: true,
     blackHole,
     fieldStep: 1 / 240,
     pathSamples: 30,
@@ -562,7 +591,7 @@ test('large tracks keep a deeper black-hole orbit scan than the ordinary reusabl
   );
 });
 
-test('planTrack searches older bounced balls before spawning another helper', () => {
+test('planTrack spawns another helper instead of recycling through an unplayed wall bounce', () => {
   const notes = [
     ...Array.from({ length: 12 }, (_, index) => ({
       time: 1 + index * 0.03,
@@ -586,16 +615,16 @@ test('planTrack searches older bounced balls before spawning another helper', ()
 
   assert.equal(
     planned.ballCount,
-    12,
-    `expected planner to recycle an older bounced helper instead of spawning again; got ${planned.ballCount}`,
+    13,
+    `expected planner to avoid unplayed wall-bounce recycling and spawn another helper; got ${planned.ballCount}`,
   );
   assert.ok(
-    planned.balls.some((ball) => ball.events.length >= 3),
-    'test should assign later notes to an already bounced helper instead of leaving every helper one-shot',
+    planned.balls.every((ball) => ball.events.length <= 2),
+    'default planning should not add extra assignments through later natural, unplayed wall bounces',
   );
 });
 
-test('planTrack can recycle rhythm balls after an intervening wall bounce back to the same low note', () => {
+test('planTrack can recycle rhythm balls directly between scheduled low-note wall hits', () => {
   const notes = Array.from({ length: 12 }, (_, index) => ({
     time: 1 + index * 0.8,
     duration: 0.08,

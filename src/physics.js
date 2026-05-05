@@ -425,6 +425,13 @@ function resolveCircleCollision(ball, arena, onCollision, restitution, tangentRe
     ball.x = arena.cx + normal.x * limit;
     ball.y = arena.cy + normal.y * limit;
     const outwardSpeed = ball.vx * normal.x + ball.vy * normal.y;
+    if (options.wallCollisionMode === 'clamp') {
+      if (outwardSpeed > 0) {
+        ball.vx -= normal.x * outwardSpeed;
+        ball.vy -= normal.y * outwardSpeed;
+      }
+      return;
+    }
     if (outwardSpeed > 0) {
       const reflected = reflectVelocity({ x: ball.vx, y: ball.vy }, normal, restitution, tangentRetention);
       ball.vx = reflected.x;
