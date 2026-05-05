@@ -73,6 +73,15 @@ export const DEFAULT_SOLVER_OPTIONS = {
   fieldMaxSteps: 320,
 };
 
+export function responsiveBallRadiusForArena(arena, options = {}) {
+  const radius = Math.max(0, Number(arena?.radius || 0));
+  const desktopRadius = Number(options.desktopRadius ?? DEFAULT_SOLVER_OPTIONS.ballRadius);
+  const minRadius = Number(options.minRadius ?? 4.25);
+  const scale = Number(options.scale ?? 0.034);
+  if (!radius) return desktopRadius;
+  return Math.max(minRadius, Math.min(desktopRadius, radius * scale));
+}
+
 export function planFlight(start, target, launchTime, arrivalTime, options = {}) {
   const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
   const duration = arrivalTime - launchTime;

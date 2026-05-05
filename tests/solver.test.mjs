@@ -1,11 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pitchToWallTarget, wallColorForTarget } from '../src/music.js';
-import { planFlight, planSong, planTrack, pathFitsArena } from '../src/solver.js';
+import { planFlight, planSong, planTrack, pathFitsArena, responsiveBallRadiusForArena } from '../src/solver.js';
 import { fieldPathSamples, simulatePosition } from '../src/physics.js';
 import { advancePlayback, createPlaybackState } from '../src/playback.js';
 
 const arena = { cx: 320, cy: 260, radius: 210 };
+
+
+test('responsive ball radius scales down on narrow mobile arenas without changing desktop size', () => {
+  const mobileArena = { cx: 195, cy: 360, radius: 148 };
+  const desktopArena = { cx: 640, cy: 410, radius: 320 };
+
+  const mobileRadius = responsiveBallRadiusForArena(mobileArena);
+  const desktopRadius = responsiveBallRadiusForArena(desktopArena);
+
+  assert.ok(mobileRadius < 5.4, `mobile ball radius should shrink with the circle, got ${mobileRadius}`);
+  assert.ok(mobileRadius >= 4.25, `mobile ball radius should stay tappably visible, got ${mobileRadius}`);
+  assert.equal(desktopRadius, 8, 'desktop radius should preserve the current visual scale');
+  assert.ok(mobileRadius / mobileArena.radius < desktopRadius / desktopArena.radius * 1.45,
+    `mobile radius should not dominate the circle: mobile ratio ${mobileRadius / mobileArena.radius}, desktop ratio ${desktopRadius / desktopArena.radius}`);
+});
 
 test('pitchToWallTarget maps low MIDI notes lower on the circular wall than high notes', () => {
   const low = pitchToWallTarget(36, arena, 0);

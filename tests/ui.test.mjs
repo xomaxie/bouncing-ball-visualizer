@@ -137,6 +137,15 @@ test('Pixi light layer renders restrained ball light so rhythm balls do not wash
   assert.match(pixiLayer, /drawBallLight/);
 });
 
+
+test('mobile arenas use responsive ball radii so balls do not dominate the circle', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /responsiveBallRadiusForArena/);
+  assert.match(app, /ballRadius: responsiveBallRadius/);
+  assert.match(app, /baseBallRadius/);
+});
+
 test('ball light rendering is budgeted and clusters orbit backlog lights for high-density scenes', async () => {
   const { app, pixiLayer } = await projectFiles();
 
@@ -170,7 +179,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-light-sync-v6/);
+  assert.match(html, /app\.js\?v=20260505-mobile-scale-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);

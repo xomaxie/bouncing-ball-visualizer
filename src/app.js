@@ -6,7 +6,7 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js?v=20260505-light-sync-v6';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-note-wall-only-v2';
-import { planSong } from './solver.js?v=20260505-note-wall-only-v2';
+import { planSong, responsiveBallRadiusForArena } from './solver.js?v=20260505-mobile-scale-v1';
 import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-light-sync-v6';
 import { AudioEngine, soundButtonLabel } from './audio.js?v=20260505-library-storage-v2';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
@@ -145,7 +145,9 @@ function isMp3File(file) {
 }
 
 function solverOptions() {
+  const responsiveBallRadius = responsiveBallRadiusForArena(arena);
   return {
+    ballRadius: responsiveBallRadius,
     gravityY: Number(gravityInput.value),
     maxSpeed: Number(maxSpeedInput.value),
     minFlightTime: 0.28,
@@ -1184,6 +1186,7 @@ window.MusicVisualizerDebug = {
     lastRenderAudioVisualDrift,
     lastFrameSyncPasses,
     missedNotes: sim ? [...sim.segmentStates.values()].filter((state) => state.missed).length : 0,
+    baseBallRadius: plan?.options?.ballRadius ?? null,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     ballVisualScales: sim ? [...sim.balls.values()].map((ball) => ball.personality?.visualRadiusScale ?? 1) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
