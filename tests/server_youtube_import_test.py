@@ -167,6 +167,19 @@ class YoutubeImportServerTest(unittest.TestCase):
     remote_index = command.index('--remote-components') + 1
     self.assertEqual(command[remote_index], 'ejs:github')
 
+  def test_youtube_import_defaults_allow_one_hour_and_250mb_audio(self):
+    command = transcribe_api.yt_dlp_download_command(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      Path('/tmp/%(title)s.%(ext)s'),
+    )
+
+    filesize_index = command.index('--max-filesize') + 1
+    match_filter_index = command.index('--match-filter') + 1
+    self.assertEqual(command[filesize_index], '250M')
+    self.assertEqual(command[match_filter_index], 'duration <= 3600')
+    self.assertEqual(transcribe_api.MAX_UPLOAD_BYTES, 250 * 1024 * 1024)
+    self.assertGreaterEqual(transcribe_api.YOUTUBE_IMPORT_TIMEOUT_SECONDS, 900)
+
 
 if __name__ == '__main__':
   unittest.main()
