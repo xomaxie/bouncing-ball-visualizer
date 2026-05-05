@@ -4,10 +4,10 @@ import {
   analyzeMp3WithPreferredTranscriber,
   transcribeAudioBufferWithBasicPitch,
   transcribeAudioFileWithServerBasicPitch,
-} from './basic-pitch-analysis.js';
+} from './basic-pitch-analysis.js?v=20260505-light-sync-v6';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-note-wall-only-v2';
 import { planSong } from './solver.js?v=20260505-note-wall-only-v2';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-light-sync-v5';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-light-sync-v6';
 import { AudioEngine, soundButtonLabel } from './audio.js?v=20260505-library-storage-v2';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
@@ -18,7 +18,7 @@ import {
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
 } from './black-hole-particles.js?v=20260505-note-wall-only-v2';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-light-sync-v5';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-light-sync-v6';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 import {
