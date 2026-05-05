@@ -106,30 +106,35 @@ test('inner circle glow is removed so the suspended black stage stays unlit unti
   assert.doesNotMatch(app, /ctx\.createRadialGradient\(arena\.cx, arena\.cy, 20, arena\.cx, arena\.cy, arena\.radius \* 1\.3\)/);
   assert.doesNotMatch(app, /rgba\(243,236,214,0\.028\)/);
   assert.doesNotMatch(app, new RegExp(String.raw`ctx\.fillRect\\(0, 0, W, H\\);\n\s*if \(!plan`));
-  assert.match(app, /drawLightSystem\(\)/);
+  assert.match(app, /renderPixiLightSystem\(\)/);
 });
 
 test('balls use a scene light buffer instead of per-ball fake glow sprites', async () => {
   const { app } = await projectFiles();
 
-  assert.match(app, /let lightCanvas/);
-  assert.match(app, /function ensureLightBuffer/);
-  assert.match(app, /function drawLightSystem/);
-  assert.match(app, /lightCtx\.globalCompositeOperation = 'lighter'/);
+  assert.match(app, /function ballLightSnapshots/);
+  assert.match(app, /renderPixiLightSystem/);
+  assert.match(app, /ballLightCount/);
   assert.match(app, /ball\.lightEnergy/);
+  assert.doesNotMatch(app, /let lightCanvas/);
+  assert.doesNotMatch(app, /function ensureLightBuffer/);
+  assert.doesNotMatch(app, /lightCtx\.createRadialGradient/);
   assert.doesNotMatch(app, /function drawBallEmitter/);
   assert.doesNotMatch(app, /drawBallEmitter\(ball\)/);
 });
 
-test('scene light buffer is restrained so balls light the circle without washing it out', async () => {
-  const { app } = await projectFiles();
+test('Pixi light layer renders restrained ball light so rhythm balls do not wash out the circle', async () => {
+  const { app, pixiLayer } = await projectFiles();
 
   assert.doesNotMatch(app, /ctx\.globalAlpha = 0\.86/);
   assert.doesNotMatch(app, /ctx\.globalAlpha = 0\.42/);
-  assert.match(app, /ctx\.globalAlpha = Math\.min\(0\.36, 0\.28 \+ Math\.max\(0, sceneLight - 1\) \* 0\.12\)/);
-  assert.match(app, /ctx\.globalAlpha = Math\.min\(0\.16, 0\.11 \+ Math\.max\(0, sceneLight - 1\) \* 0\.05\)/);
+  assert.match(app, /bodyAlphaScale/);
+  assert.match(app, /visualRadiusScale/);
   assert.match(app, /const base = 0\.04 \* Number\(ball\.lightMultiplier \?\? 1\)/);
   assert.match(app, /energizeBallLight\(ball, 0\.15\)/);
+  assert.match(pixiLayer, /ballLights/);
+  assert.match(pixiLayer, /ballGlowContainer/);
+  assert.match(pixiLayer, /drawBallLight/);
 });
 
 test('scheduled note impacts draw particle sparks sized by amplitude', async () => {
@@ -146,7 +151,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-low-speed-wall-detach-v1/);
+  assert.match(html, /app\.js\?v=20260505-pixi-ball-readability-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);

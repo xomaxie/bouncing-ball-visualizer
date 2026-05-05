@@ -5,20 +5,20 @@ import {
   transcribeAudioBufferWithBasicPitch,
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
-import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-low-speed-wall-detach-v1';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-low-speed-wall-detach-v1';
+import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-pixi-ball-readability-v1';
+import { planSong } from './solver.js?v=20260505-pixi-ball-readability-v1';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-pixi-ball-readability-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js?v=20260505-library-storage-v2';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-low-speed-wall-detach-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-pixi-ball-readability-v1';
 import {
   advanceBlackHoleParticles,
   blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-readable-photon-dust-v1';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-readable-photon-dust-v1';
+} from './black-hole-particles.js?v=20260505-pixi-ball-readability-v1';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-pixi-ball-readability-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 import {
@@ -98,15 +98,13 @@ let arenaRefreshRaf = 0;
 let arenaRefreshRebuild = false;
 let arenaRefreshResolvers = [];
 let visualEffects = createVisualEffectsState({ bandCount: 56 });
-let lightCanvas = null;
-let lightCtx = null;
 let blackHoleParticleSystem = null;
 let blackHoleParticleKey = '';
 let pixiLightLayer = null;
 let pixiLightLayerPromise = null;
+let lastPixiLightCounts = { blackHoleLightParticleCount: 0, ballLightCount: 0 };
 let currentSceneMode = sceneModeForEnergy();
 let smoothedBlackHoleEnergy = null;
-const lightBufferScale = 0.36;
 const speedValues = [0.35, 1, 1.75];
 const panelRenderIntervalMs = 100;
 let lastPanelRenderAt = -Infinity;
@@ -476,26 +474,28 @@ function decayBallLights(dt) {
 function orbitBallVisualState(ball) {
   const orbit = ball?.blackHoleOrbit;
   const personality = ball?.personality || {};
+  const visualRadiusScale = Number(personality.visualRadiusScale ?? 1);
+  const bodyAlphaScale = Number(personality.bodyAlphaScale ?? 1);
   if (!orbit?.active) {
     return {
-      bodyAlpha: 1,
-      trailAlpha: Number(personality.trailAlpha ?? 0.22),
+      bodyAlpha: Math.max(0.22, Math.min(1, bodyAlphaScale)),
+      trailAlpha: Number(personality.trailAlpha ?? 0.22) * Math.max(0.35, Math.min(1, bodyAlphaScale)),
       lightAlpha: 1,
-      radiusScale: 1,
+      radiusScale: visualRadiusScale,
     };
   }
 
   const progress = Math.max(0, Math.min(1, Number(ball.blackHoleOrbitProgress ?? 0)));
   const fade = 1 - progress * 0.42;
-  const bodyAlpha = Math.max(0.10, Number(orbit.visualAlpha ?? 0.22) * fade);
+  const bodyAlpha = Math.max(0.08, Number(orbit.visualAlpha ?? 0.22) * fade * Math.max(0.55, bodyAlphaScale));
   const lightAlpha = Math.max(0.035, Number(orbit.lightAlpha ?? 0.13) * (1 - progress * 0.56));
-  const trailAlpha = Math.max(0.015, Math.min(0.075, Number(personality.trailAlpha ?? 0.22) * 0.24 * fade));
+  const trailAlpha = Math.max(0.010, Math.min(0.055, Number(personality.trailAlpha ?? 0.22) * 0.18 * fade));
 
   return {
     bodyAlpha,
     trailAlpha,
     lightAlpha,
-    radiusScale: 0.82,
+    radiusScale: 0.76 * visualRadiusScale,
   };
 }
 
@@ -737,71 +737,51 @@ function colorWithAlpha(color, alpha) {
   return `rgba(255,255,255,${safeAlpha})`;
 }
 
-function ensureLightBuffer() {
-  const width = Math.max(1, Math.ceil(W * lightBufferScale));
-  const height = Math.max(1, Math.ceil(H * lightBufferScale));
-  if (!lightCanvas) {
-    lightCanvas = document.createElement('canvas');
-    lightCtx = lightCanvas.getContext('2d', { alpha: true });
-  }
-  if (lightCanvas.width !== width || lightCanvas.height !== height) {
-    lightCanvas.width = width;
-    lightCanvas.height = height;
-  }
-  return { canvas: lightCanvas, context: lightCtx, scale: lightBufferScale };
-}
-
-function drawLightSystem() {
-  const balls = activeBalls();
-  if (!balls.length || !arena.radius) return;
-  const { canvas: buffer, context: lightCtx, scale } = ensureLightBuffer();
-  if (!lightCtx) return;
+function ballLightSnapshots() {
+  if (!arena.radius) return [];
   const scene = currentSceneMode || sceneModeForEnergy();
   const sceneLight = Number(scene.lightMultiplier ?? 1);
 
-  lightCtx.setTransform(1, 0, 0, 1, 0, 0);
-  lightCtx.clearRect(0, 0, buffer.width, buffer.height);
-  lightCtx.save();
-  lightCtx.setTransform(scale, 0, 0, scale, 0, 0);
-  lightCtx.beginPath();
-  lightCtx.arc(arena.cx, arena.cy, arena.radius, 0, Math.PI * 2);
-  lightCtx.clip();
-  lightCtx.globalCompositeOperation = 'lighter';
-
-  for (const ball of balls) {
+  return activeBalls().map((ball) => {
     const visual = orbitBallVisualState(ball);
     const orbiting = Boolean(ball.blackHoleOrbit?.active);
     const speed = Math.min(1, Math.hypot(ball.vx || 0, ball.vy || 0) / 1200);
     const personalityLight = Number(ball.lightMultiplier ?? 1);
     const rawEnergy = Number(ball.lightEnergy || 0.04) * sceneLight * personalityLight * visual.lightAlpha;
-    const energy = Math.max(orbiting ? 0.006 : 0.035, Math.min(0.78, rawEnergy));
-    const radius = ball.radius * (5.8 + speed * 2.4 + energy * 4.1) * (orbiting ? 0.72 : 1);
-    const core = Math.max(orbiting ? 0.010 : 0.055, Math.min(0.18, (0.045 + energy * 0.095) * visual.lightAlpha));
-    const falloff = lightCtx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, radius);
-    falloff.addColorStop(0, colorWithAlpha(ball.color, core));
-    falloff.addColorStop(0.20, colorWithAlpha(ball.color, core * 0.42));
-    falloff.addColorStop(0.56, colorWithAlpha(ball.color, core * 0.10));
-    falloff.addColorStop(1, 'rgba(0,0,0,0)');
-    lightCtx.fillStyle = falloff;
-    lightCtx.beginPath();
-    lightCtx.arc(ball.x, ball.y, radius, 0, Math.PI * 2);
-    lightCtx.fill();
-  }
-  lightCtx.restore();
+    const energy = Math.max(orbiting ? 0.003 : 0.018, Math.min(0.56, rawEnergy));
+    const radius = ball.radius * visual.radiusScale * (3.2 + speed * 1.35 + energy * 2.15) * (orbiting ? 0.48 : 1);
+    const alpha = Math.max(orbiting ? 0.006 : 0.025, Math.min(0.30, (0.050 + energy * 0.14) * visual.lightAlpha));
+    return {
+      x: ball.x,
+      y: ball.y,
+      radius,
+      alpha,
+      color: ball.color,
+    };
+  }).filter((light) => light.alpha > 0.004 && light.radius > 0.5);
+}
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(arena.cx, arena.cy, arena.radius + 7, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = Math.min(0.36, 0.28 + Math.max(0, sceneLight - 1) * 0.12);
-  ctx.imageSmoothingEnabled = true;
-  ctx.filter = 'blur(6px) saturate(112%)';
-  ctx.drawImage(buffer, 0, 0, W, H);
-  ctx.filter = 'none';
-  ctx.globalAlpha = Math.min(0.16, 0.11 + Math.max(0, sceneLight - 1) * 0.05);
-  ctx.drawImage(buffer, 0, 0, W, H);
-  ctx.restore();
+function renderPixiLightSystem({ lightParticles = null, power = null } = {}) {
+  const layer = ensurePixiLightLayer();
+  if (!layer?.ready) return false;
+  const blackHole = plan?.blackHole;
+  const system = blackHole ? ensureBlackHoleParticleSystem() : null;
+  const energyState = blackHoleEnergyState();
+  const nextLightParticles = lightParticles
+    ?? (system && blackHole ? blackHoleLightParticleSnapshots(system, blackHole, energyState, blackHoleDominantColorState()) : []);
+  const visual = blackHole ? blackHoleVisualState(blackHole, energyState) : null;
+  const renderPower = power ?? Math.max(0, Math.min(1.15, Number(visual?.power ?? visual?.intensity ?? 0)));
+  const result = layer.render({
+    particles: nextLightParticles || [],
+    ballLights: ballLightSnapshots(),
+    arena,
+    power: renderPower,
+  }) || { particleCount: 0, ballLightCount: 0 };
+  lastPixiLightCounts = {
+    blackHoleLightParticleCount: Number(result.particleCount || 0),
+    ballLightCount: Number(result.ballLightCount || 0),
+  };
+  return true;
 }
 
 function drawWall() {
@@ -848,6 +828,7 @@ function ensurePixiLightLayer() {
     height: H || canvasFrame.clientHeight || window.innerHeight || 1,
     dpr: DPR(),
     maxParticles: 1220,
+    maxBallLights: 640,
   })
     .then((layer) => {
       pixiLightLayer = layer;
@@ -865,14 +846,7 @@ function ensurePixiLightLayer() {
 }
 
 function renderBlackHoleLightParticlesWithLibrary(lightParticles, power = 0) {
-  const layer = ensurePixiLightLayer();
-  if (!layer?.ready) return false;
-  layer.render({
-    particles: lightParticles || [],
-    arena,
-    power,
-  });
-  return true;
+  return renderPixiLightSystem({ lightParticles, power });
 }
 
 function drawBlackHole() {
@@ -882,10 +856,8 @@ function drawBlackHole() {
   const energyState = blackHoleEnergyState();
   const visual = blackHoleVisualState(blackHole, energyState);
   const particles = blackHoleParticleSnapshots(system, blackHole, energyState);
-  const lightParticles = blackHoleLightParticleSnapshots(system, blackHole, energyState, blackHoleDominantColorState());
   const radius = visual?.radius ?? Math.max(4, blackHole.radius || arena.radius * 0.045);
   const horizon = visual?.horizon ?? Math.max(radius * 1.02, blackHole.eventHorizonRadius || radius * 1.08);
-  const pulse = 0.5 + Math.sin(performance.now() * 0.0034) * 0.5;
   const power = Math.max(0, Math.min(1.15, Number(visual?.power ?? visual?.intensity ?? 0)));
 
   ctx.save();
@@ -893,8 +865,6 @@ function drawBlackHole() {
   ctx.arc(arena.cx, arena.cy, arena.radius - 1, 0, Math.PI * 2);
   ctx.clip();
   ctx.globalCompositeOperation = 'lighter';
-
-  renderBlackHoleLightParticlesWithLibrary(lightParticles, power);
 
   for (const particle of particles) {
     const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
@@ -988,7 +958,7 @@ function render() {
   }
   drawExteriorFrequencyField();
   drawWall();
-  drawLightSystem();
+  renderPixiLightSystem();
   drawBlackHole();
   drawBalls();
   drawImpactFrames();
@@ -1151,10 +1121,10 @@ window.MusicVisualizerDebug = {
     blackHoleDominantNoteColor: visualEffects?.dominantNoteColor ?? null,
     blackHoleDominantNoteEnergy: visualEffects?.dominantNoteEnergy ?? 0,
     pixiLightLayer: pixiLightLayer?.kind ?? (pixiLightLayerPromise ? 'loading' : 'pending'),
-    blackHoleLightParticleCount: plan?.blackHole
-      ? blackHoleLightParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState(), blackHoleDominantColorState()).filter((particle) => particle.alpha > 0.025).length
-      : 0,
+    blackHoleLightParticleCount: lastPixiLightCounts.blackHoleLightParticleCount,
+    ballLightCount: lastPixiLightCounts.ballLightCount,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
+    ballVisualScales: sim ? [...sim.balls.values()].map((ball) => ball.personality?.visualRadiusScale ?? 1) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
     adaptiveSegments: plan?.events?.filter((segment) => (segment.energyIntensity || 0) > 0)?.length ?? 0,
     maxSegmentGravityY: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.gravityY || plan.options.gravityY || 0)) : 0,

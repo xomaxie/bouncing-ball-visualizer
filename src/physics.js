@@ -327,7 +327,13 @@ export function stepBallInCircle(ball, dt, arena, gravity = { x: 0, y: 0 }, onCo
     while (elapsed < dt - 1e-12 && guard < 10000) {
       guard += 1;
       const subDt = Math.min(maxStep, dt - elapsed);
-      integrateBallStepInCircle(ball, subDt, arena, { ...gravity, blackHole }, onCollision, { restitution, tangentRetention, drag, onBlackHoleCapture });
+      integrateBallStepInCircle(ball, subDt, arena, { ...gravity, blackHole }, onCollision, {
+        ...options,
+        restitution,
+        tangentRetention,
+        drag,
+        onBlackHoleCapture,
+      });
       elapsed += subDt;
       if (ball.blackHoleCaptured) break;
     }
@@ -457,6 +463,9 @@ function applyMinimumWallBounce(ball, normal, outwardSpeed, options = {}) {
 }
 
 function integrateBallStepInCircle(ball, dt, arena, gravity, onCollision, options) {
+  if (options.grazingWallDetach === true) {
+    applyGrazingWallDetach(ball, arena, gravity, options);
+  }
   integrateFieldStep(ball, dt, gravity);
   applyDrag(ball, dt, options.drag);
   const blackHole = activeBlackHole(gravity);

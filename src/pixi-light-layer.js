@@ -83,7 +83,25 @@ function drawPhotonDust(graphic, particle, color, power, { soft = false } = {}) 
   // Photon dust should read as a dense luminous point field, not as worm-like trails.
 }
 
-export async function createPixiLightParticleLayer({ host, width = 1, height = 1, dpr = 1, maxParticles = 220 } = {}) {
+function drawBallLight(graphic, light, color, power, { soft = false } = {}) {
+  const alpha = clamp(light.alpha) * (soft ? (0.18 + power * 0.045) : (0.34 + power * 0.065));
+  if (alpha <= 0.004) {
+    graphic.visible = false;
+    return;
+  }
+
+  graphic.visible = true;
+  graphic.clear();
+  graphic.blendMode = 'add';
+  const radius = Math.max(0.4, Number(light.radius || 4)) * (soft ? (3.8 + power * 0.65) : 1.05);
+  graphic.circle(light.x, light.y, radius);
+  graphic.fill({
+    color,
+    alpha: Math.min(0.46, alpha),
+  });
+}
+
+export async function createPixiLightParticleLayer({ host, width = 1, height = 1, dpr = 1, maxParticles = 220, maxBallLights = 420 } = {}) {
   if (!host) throw new Error('Pixi light layer requires a host element');
 
   const app = new PIXI.Application();
@@ -104,14 +122,22 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
   const mask = new PIXI.Graphics();
   const glowContainer = new PIXI.Container();
   const dustContainer = new PIXI.Container();
+  const ballGlowContainer = new PIXI.Container();
+  const ballCoreContainer = new PIXI.Container();
   glowContainer.blendMode = 'add';
   dustContainer.blendMode = 'add';
+  ballGlowContainer.blendMode = 'add';
+  ballCoreContainer.blendMode = 'add';
   glowContainer.filters = [new PIXI.BlurFilter({ strength: 1.65, quality: 4 })];
+  ballGlowContainer.filters = [new PIXI.BlurFilter({ strength: 2.4, quality: 4 })];
   glowContainer.mask = mask;
   dustContainer.mask = mask;
-  app.stage.addChild(mask, glowContainer, dustContainer);
+  ballGlowContainer.mask = mask;
+  ballCoreContainer.mask = mask;
+  app.stage.addChild(mask, glowContainer, dustContainer, ballGlowContainer, ballCoreContainer);
 
   const count = Math.max(16, Math.min(1400, Math.round(Number(maxParticles) || 1120)));
+  const ballCount = Math.max(32, Math.min(900, Math.round(Number(maxBallLights) || 420)));
   const softDust = [];
   const dust = [];
   for (let index = 0; index < count; index += 1) {
@@ -124,6 +150,18 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
     glowContainer.addChild(softParticle);
     dustContainer.addChild(particle);
   }
+  const ballGlow = [];
+  const ballCore = [];
+  for (let index = 0; index < ballCount; index += 1) {
+    const softBall = new PIXI.Graphics();
+    const coreBall = new PIXI.Graphics();
+    softBall.visible = false;
+    coreBall.visible = false;
+    ballGlow.push(softBall);
+    ballCore.push(coreBall);
+    ballGlowContainer.addChild(softBall);
+    ballCoreContainer.addChild(coreBall);
+  }
 
   function resize(next = {}) {
     const nextWidth = Math.max(1, Math.round(Number(next.width ?? width) || 1));
@@ -135,7 +173,7 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
     app.canvas.style.height = `${nextHeight}px`;
   }
 
-  function render({ particles = [], arena = null, power = 0 } = {}) {
+  function render({ particles = [], ballLights = [], arena = null, power = 0 } = {}) {
     const safePower = clamp(power, 0, 1.15);
     mask.clear();
     if (arena?.radius > 0) {
@@ -147,6 +185,7 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
     }
 
     const visible = particles.filter((particle) => Number(particle?.alpha || 0) > 0.006).slice(0, count);
+    const visibleBallLights = ballLights.filter((light) => Number(light?.alpha || 0) > 0.004).slice(0, ballCount);
     for (let index = 0; index < count; index += 1) {
       const particle = visible[index];
       if (!particle) {
@@ -158,13 +197,29 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
       drawPhotonDust(softDust[index], particle, color, safePower, { soft: true });
       drawPhotonDust(dust[index], particle, color, safePower);
     }
+    for (let index = 0; index < ballCount; index += 1) {
+      const light = visibleBallLights[index];
+      if (!light) {
+        ballGlow[index].visible = false;
+        ballCore[index].visible = false;
+        continue;
+      }
+      const color = colorToHex(light.color, 0x52d6ff);
+      drawBallLight(ballGlow[index], light, color, safePower, { soft: true });
+      drawBallLight(ballCore[index], light, color, safePower);
+    }
     app.renderer.render(app.stage);
-    return visible.length;
+    return {
+      particleCount: visible.length,
+      ballLightCount: visibleBallLights.length,
+    };
   }
 
   function clear() {
     for (const graphic of softDust) graphic.visible = false;
     for (const graphic of dust) graphic.visible = false;
+    for (const graphic of ballGlow) graphic.visible = false;
+    for (const graphic of ballCore) graphic.visible = false;
     app.renderer.render(app.stage);
   }
 
@@ -182,6 +237,7 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
     clear,
     destroy,
     maxParticles: count,
+    maxBallLights: ballCount,
   };
 }
 

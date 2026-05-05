@@ -768,6 +768,9 @@ test('planTrack applies instrument ball personalities to physics and segment met
   assert.equal(treble.personality.name, 'treble');
   assert.equal(drums.personality.name, 'drums');
   assert.ok(bass.balls[0].radius > treble.balls[0].radius, 'bass balls should be visibly heavier than treble balls');
+  assert.ok(bass.personality.visualRadiusScale < 0.82, 'bass/rhythm balls should render smaller than their physics body so they do not dominate the scene');
+  assert.ok(drums.personality.visualRadiusScale < 0.78, 'drum/rhythm balls should render as compact impact markers, not oversized discs');
+  assert.ok(drums.personality.bodyAlphaScale < 0.9, 'drum/rhythm balls should be visually subdued between impacts');
   assert.ok(bass.segments[0].gravityY > baseOptions.gravityY, 'bass should use heavier scheduled gravity');
   assert.ok(treble.segments[0].speedLimit > baseOptions.maxSpeed, 'treble should allow faster agile launches');
   assert.ok(drums.segments[0].personality.sparkMultiplier > bass.segments[0].personality.sparkMultiplier, 'drums should have punchier impacts');

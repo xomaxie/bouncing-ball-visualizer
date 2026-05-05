@@ -172,6 +172,29 @@ test('wall contacts inject enough inward bounce to avoid side-wall dribbling', (
   );
 });
 
+test('black-hole field substeps keep minimum wall bounce physics so side balls do not dribble', () => {
+  const blackHole = { enabled: true, x: 0, y: 0, radius: 10, strength: 0, softeningRadius: 40, eventHorizonRadius: 0 };
+  const ball = createBall({ x: 92, y: 0, vx: 0, vy: 42, radius: 8 });
+  let collisions = 0;
+  let deepestInset = 0;
+
+  for (let step = 0; step < 120; step += 1) {
+    stepBallInCircle(ball, 1 / 120, arena, { x: 0, y: 160, blackHole }, () => {
+      collisions += 1;
+    }, PLAYBACK_PHYSICS_OPTIONS);
+    deepestInset = Math.max(deepestInset, (arena.radius - ball.radius) - Math.hypot(ball.x, ball.y));
+  }
+
+  assert.ok(
+    deepestInset > 10,
+    `black-hole field substeps should preserve the anti-dribble inward bounce; deepest inset=${deepestInset.toFixed(3)}px`,
+  );
+  assert.ok(
+    collisions < 45,
+    `black-hole field substeps should not micro-collide down the wall every frame; collisions=${collisions}`,
+  );
+});
+
 test('low-speed wall contacts under outward gravity detach instead of dribbling along the boundary', () => {
   const radius = 8;
   const limit = arena.radius - radius;
