@@ -21,6 +21,112 @@ export function activeBlackHole(gravityOrOptions = {}) {
   };
 }
 
+
+function hashString(value = '') {
+  let hash = 2166136261;
+  const text = String(value);
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function randomUnitForBallId(id = 'ball', salt = '') {
+  const seed = hashString(`${id || 'ball'}:${salt}`);
+  return ((seed % 1000003) / 1000003);
+}
+
+export function blackHoleCaptureRadiusForBall(ballOrRadius = 0, blackHoleConfig = null) {
+  const radius = typeof ballOrRadius === 'number'
+    ? ballOrRadius
+    : Number(ballOrRadius?.radius || 0);
+  const blackHole = activeBlackHole({ blackHole: blackHoleConfig }) || blackHoleConfig;
+  return Math.max(0, Number(blackHole?.eventHorizonRadius || 0)) + Math.max(0, radius);
+}
+
+export function createBlackHoleOrbit(ballLike = {}, blackHoleConfig = null, currentTime = 0) {
+  const blackHole = activeBlackHole({ blackHole: blackHoleConfig }) || blackHoleConfig;
+  if (!blackHole || blackHole.enabled === false) return null;
+
+  const ballId = ballLike.id || 'ball';
+  const ballRadius = Number(ballLike.radius || 0);
+  const dx = Number(ballLike.x || 0) - blackHole.x;
+  const dy = Number(ballLike.y || 0) - blackHole.y;
+  const currentDistance = Math.hypot(dx, dy);
+  const captureRadius = blackHoleCaptureRadiusForBall(ballRadius, blackHole);
+  const fallbackDistance = captureRadius + Number(blackHole.radius || 12) * 2.2;
+  const safeDistance = Math.max(captureRadius + 6, currentDistance || fallbackDistance);
+  const unit = currentDistance > 1e-6
+    ? { x: dx / currentDistance, y: dy / currentDistance }
+    : {
+      x: Math.cos(randomUnitForBallId(ballId, 'angle') * Math.PI * 2),
+      y: Math.sin(randomUnitForBallId(ballId, 'angle') * Math.PI * 2),
+    };
+  const timeSalt = Math.round(Number(currentTime || 0) * 1000);
+  const direction = randomUnitForBallId(ballId, `direction:${timeSalt}`) < 0.5 ? -1 : 1;
+  const rotations = 2.15 + randomUnitForBallId(ballId, `rotations:${timeSalt}`) * 2.25;
+  const angularVelocity = direction * (1.95 + randomUnitForBallId(ballId, 'angular-velocity') * 0.9);
+  const lifetime = Math.max(1.2, (Math.PI * 2 * rotations) / Math.max(0.4, Math.abs(angularVelocity)));
+
+  return {
+    active: true,
+    startedAt: Number(currentTime || 0),
+    angle: Math.atan2(unit.y, unit.x),
+    radius: safeDistance,
+    initialRadius: safeDistance,
+    captureRadius,
+    rotations,
+    angularVelocity,
+    decayRate: (safeDistance - captureRadius) / lifetime,
+    wobble: Math.min(10, Math.max(1.5, safeDistance * 0.018)) * (0.35 + randomUnitForBallId(ballId, 'wobble') * 0.65),
+    wobblePhase: randomUnitForBallId(ballId, 'phase') * Math.PI * 2,
+  };
+}
+
+function sampleBlackHoleOrbitPoint(orbit, blackHole, elapsed) {
+  const angle = orbit.angle + orbit.angularVelocity * elapsed;
+  const rawRadius = orbit.radius - orbit.decayRate * elapsed;
+  const visibleRadius = Math.max(orbit.captureRadius, rawRadius);
+  const progress = 1 - Math.max(0, Math.min(1, (visibleRadius - orbit.captureRadius) / Math.max(1, orbit.initialRadius - orbit.captureRadius)));
+  const wobble = Math.sin(angle * 2.3 + orbit.wobblePhase) * orbit.wobble * (1 - progress) * 0.55;
+  const radius = Math.max(orbit.captureRadius, visibleRadius + wobble);
+  return {
+    x: blackHole.x + Math.cos(angle) * radius,
+    y: blackHole.y + Math.sin(angle) * radius,
+    angle,
+    radius,
+    rawRadius,
+    destroyed: rawRadius <= orbit.captureRadius + 0.2,
+  };
+}
+
+export function sampleBlackHoleOrbit(orbit = null, blackHoleConfig = null, absoluteTime = 0) {
+  const blackHole = activeBlackHole({ blackHole: blackHoleConfig }) || blackHoleConfig;
+  if (!orbit?.active || !blackHole) return null;
+  const elapsed = Math.max(0, Number(absoluteTime || 0) - Number(orbit.startedAt || 0));
+  const point = sampleBlackHoleOrbitPoint(orbit, blackHole, elapsed);
+  const delta = 1 / 240;
+  const previous = sampleBlackHoleOrbitPoint(orbit, blackHole, Math.max(0, elapsed - delta));
+  const next = sampleBlackHoleOrbitPoint(orbit, blackHole, elapsed + delta);
+  return {
+    ...point,
+    vx: (next.x - previous.x) / (elapsed < delta ? delta : delta * 2),
+    vy: (next.y - previous.y) / (elapsed < delta ? delta : delta * 2),
+    elapsed,
+  };
+}
+
+export function applyBlackHoleOrbitToBall(ball, orbit = null, blackHoleConfig = null, absoluteTime = 0) {
+  const sample = sampleBlackHoleOrbit(orbit, blackHoleConfig, absoluteTime);
+  if (!ball || !sample) return false;
+  ball.x = sample.x;
+  ball.y = sample.y;
+  ball.vx = sample.vx;
+  ball.vy = sample.vy;
+  return sample.destroyed;
+}
+
 export function blackHoleAccelerationAt(point, blackHoleConfig = null) {
   const blackHole = activeBlackHole({ blackHole: blackHoleConfig });
   if (!blackHole || blackHole.strength <= 0) return { x: 0, y: 0 };

@@ -6,12 +6,12 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-black-hole-waiting-room-v1';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-black-hole-waiting-room-v1';
+import { planSong } from './solver.js?v=20260505-orbit-redirect-v1';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-orbit-redirect-v1';
 import { AudioEngine, soundButtonLabel } from './audio.js';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-black-hole-waiting-room-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-orbit-redirect-v1';
 import {
   advanceBlackHoleParticles,
   blackHoleLightParticleSnapshots,
@@ -1033,6 +1033,8 @@ window.MusicVisualizerDebug = {
     blackHole: plan?.blackHole ?? null,
     blackHoleSegments: plan?.events?.filter((segment) => segment.flightField === 'black-hole').length ?? 0,
     blackHoleSourceSegments: plan?.events?.filter((segment) => segment.spawnSource === 'black-hole').length ?? 0,
+    blackHoleOrbitSourceSegments: plan?.events?.filter((segment) => segment.spawnSource === 'black-hole-orbit').length ?? 0,
+    blackHoleParkingSegments: plan?.events?.filter((segment) => segment.parkInBlackHoleAfterBounce).length ?? 0,
     maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
     blackHoleBendPx: blackHoleBendStats(),
     blackHoleParticleCount: blackHoleParticleSystem?.particles?.length ?? 0,

@@ -301,6 +301,41 @@ test('planTrack spawns zero-time notes at the wall contact point without a visib
 
 
 
+
+
+test('planTrack redirects waiting-room black-hole orbit balls before spawning new helpers', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
+  const notes = [
+    { time: 1.0, duration: 0.08, midi: 36, velocity: 0.76 },
+    { time: 4.0, duration: 0.08, midi: 36, velocity: 0.76 },
+  ];
+
+  const planned = planTrack({ id: 0, name: 'waiting-room redirect', notes }, arena, {
+    gravityY: 160,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    spawnPreferredFlightTime: 0.32,
+    maxSpeed: 1550,
+    blackHole,
+    fieldStep: 1 / 240,
+    pathSamples: 30,
+    largeTrackNoteThreshold: 9999,
+  });
+
+  const redirected = planned.segments.find((segment) => segment.spawnSource === 'black-hole-orbit');
+
+  assert.equal(planned.ballCount, 1, `expected the idle first ball to be redirected from black-hole orbit instead of spawning a second helper; got ${planned.ballCount}`);
+  assert.ok(redirected, 'later note should reuse the waiting-room orbit instead of creating a fresh black-hole helper');
+  assert.equal(redirected.ballId, planned.segments[0].ballId, 'the redirected note should use the original ball');
+  assert.equal(planned.segments[0].parkInBlackHoleAfterBounce, true, 'previous segment should be marked to enter the black-hole waiting room');
+
+  const distanceFromHole = Math.hypot(redirected.start.x - blackHole.x, redirected.start.y - blackHole.y);
+  assert.ok(
+    distanceFromHole > blackHole.eventHorizonRadius + redirected.ballRadius,
+    `redirect launch should start outside the event horizon, distance=${distanceFromHole}`,
+  );
+});
+
 test('newly allocated helper balls originate from the black-hole rim when the well is enabled', () => {
   const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
   const notes = Array.from({ length: 10 }, (_, index) => ({

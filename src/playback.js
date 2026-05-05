@@ -1,70 +1,27 @@
 import {
+  applyBlackHoleOrbitToBall,
   createBall,
+  createBlackHoleOrbit,
   reflectVelocity,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js?v=20260505-black-hole-waiting-room-v1';
+} from './physics.js?v=20260505-orbit-redirect-v1';
 
 const EPSILON = 1e-7;
 
 
-function hashString(value = '') {
-  let hash = 2166136261;
-  const text = String(value);
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function randomUnitForBall(ball, salt = '') {
-  const seed = hashString(`${ball?.id || 'ball'}:${salt}`);
-  return ((seed % 1000003) / 1000003);
-}
-
-function captureOrbitRadius(ball, blackHole) {
-  return Math.max(0, Number(blackHole?.eventHorizonRadius || 0)) + Math.max(0, Number(ball?.radius || 0));
-}
-
 function parkBallInBlackHoleOrbit(ball, blackHole, currentTime = 0) {
-  if (!ball || !blackHole || blackHole.enabled === false) return false;
-  const dx = ball.x - blackHole.x;
-  const dy = ball.y - blackHole.y;
-  const currentDistance = Math.hypot(dx, dy);
-  const captureRadius = captureOrbitRadius(ball, blackHole);
-  const safeDistance = Math.max(captureRadius + 6, currentDistance || captureRadius + Number(blackHole.radius || 12) * 2.2);
-  const unit = currentDistance > 1e-6
-    ? { x: dx / currentDistance, y: dy / currentDistance }
-    : { x: Math.cos(randomUnitForBall(ball, 'angle') * Math.PI * 2), y: Math.sin(randomUnitForBall(ball, 'angle') * Math.PI * 2) };
-  const direction = randomUnitForBall(ball, `direction:${Math.round(currentTime * 1000)}`) < 0.5 ? -1 : 1;
-  const rotations = 2.15 + randomUnitForBall(ball, `rotations:${Math.round(currentTime * 1000)}`) * 2.25;
-  const angularVelocity = direction * (1.95 + randomUnitForBall(ball, 'angular-velocity') * 0.9);
-  const lifetime = Math.max(1.2, (Math.PI * 2 * rotations) / Math.max(0.4, Math.abs(angularVelocity)));
+  const orbit = createBlackHoleOrbit(ball, blackHole, currentTime);
+  if (!ball || !orbit || !blackHole) return false;
 
-  ball.blackHoleOrbit = {
-    active: true,
-    startedAt: currentTime,
-    angle: Math.atan2(unit.y, unit.x),
-    radius: safeDistance,
-    initialRadius: safeDistance,
-    captureRadius,
-    rotations,
-    angularVelocity,
-    decayRate: (safeDistance - captureRadius) / lifetime,
-    wobble: Math.min(10, Math.max(1.5, safeDistance * 0.018)) * (0.35 + randomUnitForBall(ball, 'wobble') * 0.65),
-    wobblePhase: randomUnitForBall(ball, 'phase') * Math.PI * 2,
-  };
+  ball.blackHoleOrbit = orbit;
   ball.spawned = true;
   ball.retired = false;
   ball.retireOnNextCollision = false;
   ball.armedSegmentId = null;
   ball.blackHoleCaptured = false;
   ball.blackHoleDestroyed = false;
-  ball.x = blackHole.x + unit.x * safeDistance;
-  ball.y = blackHole.y + unit.y * safeDistance;
-  ball.vx = -unit.y * Math.abs(angularVelocity) * safeDistance * direction;
-  ball.vy = unit.x * Math.abs(angularVelocity) * safeDistance * direction;
+  applyBlackHoleOrbitToBall(ball, orbit, blackHole, currentTime);
   return true;
 }
 
@@ -81,24 +38,12 @@ function destroyBallInBlackHole(ball) {
   ball.vy = 0;
 }
 
-function advanceBlackHoleOrbit(ball, dt, blackHole) {
+function advanceBlackHoleOrbit(ball, dt, blackHole, currentTime = 0) {
   const orbit = ball?.blackHoleOrbit;
   if (!orbit?.active || !blackHole || dt <= 0) return false;
 
-  const previous = { x: ball.x, y: ball.y };
-  orbit.angle += orbit.angularVelocity * dt;
-  orbit.radius -= orbit.decayRate * dt;
-  const visibleRadius = Math.max(orbit.captureRadius, orbit.radius);
-  const progress = 1 - Math.max(0, Math.min(1, (visibleRadius - orbit.captureRadius) / Math.max(1, orbit.initialRadius - orbit.captureRadius)));
-  const wobble = Math.sin(orbit.angle * 2.3 + orbit.wobblePhase) * orbit.wobble * (1 - progress) * 0.55;
-  const radius = Math.max(orbit.captureRadius, visibleRadius + wobble);
-
-  ball.x = blackHole.x + Math.cos(orbit.angle) * radius;
-  ball.y = blackHole.y + Math.sin(orbit.angle) * radius;
-  ball.vx = (ball.x - previous.x) / dt;
-  ball.vy = (ball.y - previous.y) / dt;
-
-  if (orbit.radius <= orbit.captureRadius + 0.2) {
+  const destroyed = applyBlackHoleOrbitToBall(ball, orbit, blackHole, currentTime + dt);
+  if (destroyed) {
     ball.x = blackHole.x;
     ball.y = blackHole.y;
     destroyBallInBlackHole(ball);
@@ -214,7 +159,7 @@ export function hitPlaybackSegment(sim, plan, arena, segment) {
   if (segment.wallColor) ball.color = segment.wallColor;
   ball.armedSegmentId = null;
   ball.spawned = true;
-  ball.retireOnNextCollision = segment.id === ball.finalSegmentId;
+  ball.retireOnNextCollision = segment.id === ball.finalSegmentId || Boolean(segment.parkInBlackHoleAfterBounce);
 
   const state = sim.segmentStates.get(segment.id);
   if (state) state.hit = true;
@@ -258,38 +203,57 @@ function stepSpawnedBalls(sim, dt, arena, gravity, callbacks, physicsOptions) {
   for (const ball of sim.balls.values()) {
     if (!ball.spawned || ball.retired) continue;
     const blackHole = gravity.blackHole || null;
+    let elapsed = 0;
+    let guard = 0;
 
-    if (ball.blackHoleOrbit?.active) {
-      const destroyed = advanceBlackHoleOrbit(ball, dt, blackHole);
-      if (destroyed) callbacks.onBlackHoleCapture?.({ ball, blackHole, x: ball.x, y: ball.y, orbit: true });
-      continue;
+    while (elapsed < dt - 1e-12 && guard < 20000) {
+      guard += 1;
+
+      if (!ball.spawned || ball.retired) break;
+
+      if (ball.blackHoleOrbit?.active) {
+        const remaining = dt - elapsed;
+        const destroyed = advanceBlackHoleOrbit(ball, remaining, blackHole, sim.time + elapsed);
+        if (destroyed) callbacks.onBlackHoleCapture?.({ ball, blackHole, x: ball.x, y: ball.y, orbit: true });
+        elapsed = dt;
+        break;
+      }
+
+      const subStep = ball.retireOnNextCollision
+        ? Math.min(1 / 120, dt - elapsed)
+        : dt - elapsed;
+      const collisionTime = sim.time + elapsed + subStep;
+      const ballGravity = {
+        x: gravity.x || 0,
+        y: Number.isFinite(ball.gravityY) ? ball.gravityY : (gravity.y || 0),
+        blackHole,
+      };
+      stepBallInCircle(ball, subStep, arena, ballGravity, (collision) => {
+        callbacks.onCollision?.(collision);
+        if (ball.retireOnNextCollision && !ball.armedSegmentId) {
+          if (parkBallInBlackHoleOrbit(ball, blackHole, collisionTime)) {
+            callbacks.onBlackHoleOrbit?.({ ball, blackHole, collision, time: collisionTime });
+            return;
+          }
+          ball.spawned = false;
+          ball.retired = true;
+          ball.retireOnNextCollision = false;
+          ball.vx = 0;
+          ball.vy = 0;
+        }
+      }, {
+        ...physicsOptions,
+        onBlackHoleCapture: (capture) => {
+          callbacks.onBlackHoleCapture?.(capture);
+          destroyBallInBlackHole(ball);
+        },
+      });
+      elapsed += subStep;
     }
 
-    const ballGravity = {
-      x: gravity.x || 0,
-      y: Number.isFinite(ball.gravityY) ? ball.gravityY : (gravity.y || 0),
-      blackHole,
-    };
-    stepBallInCircle(ball, dt, arena, ballGravity, (collision) => {
-      callbacks.onCollision?.(collision);
-      if (ball.retireOnNextCollision && !ball.armedSegmentId) {
-        if (parkBallInBlackHoleOrbit(ball, blackHole, sim.time)) {
-          callbacks.onBlackHoleOrbit?.({ ball, blackHole, collision });
-          return;
-        }
-        ball.spawned = false;
-        ball.retired = true;
-        ball.retireOnNextCollision = false;
-        ball.vx = 0;
-        ball.vy = 0;
-      }
-    }, {
-      ...physicsOptions,
-      onBlackHoleCapture: (capture) => {
-        callbacks.onBlackHoleCapture?.(capture);
-        destroyBallInBlackHole(ball);
-      },
-    });
+    if (guard >= 20000) {
+      throw new Error('Playback spawned-ball step exceeded guard');
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTrack } from '../src/solver.js';
-import { fieldPathSamples, simulatePosition } from '../src/physics.js';
+import { fieldPathSamples, sampleBlackHoleOrbit, simulatePosition } from '../src/physics.js';
 import { advancePlayback, createPlaybackState, hitPlaybackSegment } from '../src/playback.js';
 
 const arena = { cx: 320, cy: 260, radius: 210 };
@@ -197,6 +197,78 @@ test('final-use balls park in a decaying black-hole orbit before being destroyed
   assert.equal(ball.spawned, false, 'orbiting ball should finally disappear after falling into the black hole');
   assert.equal(ball.retired, true);
   assert.equal(ball.blackHoleDestroyed, true, 'destruction should be attributed to black-hole capture');
+});
+
+
+
+test('advancePlayback can redirect a parked black-hole orbit ball into a later scheduled note', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 14 };
+  const first = {
+    id: 'orbit-reuse:0',
+    ballId: 'orbit-reuse-ball',
+    trackId: 0,
+    trackName: 'orbit reuse',
+    target: { x: arena.cx + arena.radius, y: arena.cy },
+    centerTarget: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    start: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    launchTime: 0,
+    arrivalTime: 0,
+    duration: 0,
+    velocity: { x: 360, y: -80 },
+    gravityY: 0,
+    wallColor: '#fff',
+    parkInBlackHoleAfterBounce: true,
+    note: { time: 0, midi: 60, velocity: 0.8 },
+  };
+  const launchTime = 1.55;
+  const second = {
+    id: 'orbit-reuse:1',
+    ballId: 'orbit-reuse-ball',
+    trackId: 0,
+    trackName: 'orbit reuse',
+    target: { x: arena.cx, y: arena.cy - arena.radius },
+    centerTarget: { x: arena.cx, y: arena.cy - arena.radius + 8 },
+    start: { x: arena.cx, y: arena.cy },
+    launchTime,
+    arrivalTime: launchTime + 0.5,
+    duration: 0.5,
+    velocity: { x: 0, y: -320 },
+    gravityY: 0,
+    wallColor: '#fff',
+    spawnSource: 'black-hole-orbit',
+    note: { time: launchTime + 0.5, midi: 72, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'orbit-reuse-ball', events: [first, second] }], segments: [first, second] }],
+    events: [first, second],
+    duration: 2.2,
+    options: { ballRadius: 8, gravityY: 0, blackHole },
+    blackHole,
+  };
+  const sim = createPlaybackState(plan, arena);
+  const launches = [];
+  let observedOrbit = false;
+
+  while (sim.time < second.launchTime - 1e-9) {
+    advancePlayback(sim, plan, arena, Math.min(1 / 120, second.launchTime - sim.time), {
+      onLaunch: (launch) => launches.push(launch),
+      onBlackHoleOrbit: ({ ball }) => {
+        observedOrbit = true;
+        const orbitLaunch = sampleBlackHoleOrbit(ball.blackHoleOrbit, blackHole, second.launchTime);
+        second.start = { x: orbitLaunch.x, y: orbitLaunch.y };
+      },
+    });
+  }
+
+  const secondLaunch = launches.find((launch) => launch.segment.id === second.id);
+  const ball = sim.balls.get(second.ballId);
+
+  assert.equal(observedOrbit, true, 'the first segment should park the ball in the waiting orbit before the later launch');
+  assert.ok(secondLaunch, 'the orbit-sourced segment should launch');
+  assert.equal(secondLaunch.previous.orbiting, true, 'the ball should be redirected while it is in the black-hole waiting orbit');
+  assert.ok(secondLaunch.jumpDistance <= 3, `orbit redirect should not teleport; jump=${secondLaunch.jumpDistance}`);
+  assert.equal(ball.blackHoleOrbit, null, 'launching the later note should remove the ball from waiting orbit');
+  assert.equal(ball.armedSegmentId, second.id);
 });
 
 test('hitPlaybackSegment recolors a ball to the rainbow wall color it impacts', () => {
