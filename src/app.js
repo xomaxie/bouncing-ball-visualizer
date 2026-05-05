@@ -6,12 +6,12 @@ import {
   transcribeAudioFileWithServerBasicPitch,
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-adaptive-octaves-v2';
-import { planSong } from './solver.js?v=20260505-orbit-visual-v1';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-orbit-visual-v1';
+import { planSong } from './solver.js?v=20260505-library-storage-v2';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-library-storage-v2';
 import { AudioEngine, soundButtonLabel } from './audio.js?v=20260505-library-storage-v2';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
-import { fieldPathSamples } from './physics.js?v=20260505-orbit-visual-v1';
+import { fieldPathSamples } from './physics.js?v=20260505-wall-bounce-v1';
 import {
   advanceBlackHoleParticles,
   blackHoleLightParticleSnapshots,
@@ -30,7 +30,7 @@ import {
   loadSharedTrack,
   loginToLibrary,
   saveLibraryTrack,
-} from './library-api.js?v=20260505-library-storage-v1';
+} from './library-api.js?v=20260505-library-storage-v2';
 
 const canvas = document.querySelector('#arena');
 const canvasFrame = document.querySelector('.canvasFrame');
