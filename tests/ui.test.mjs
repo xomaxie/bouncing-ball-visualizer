@@ -130,11 +130,14 @@ test('Pixi light layer renders restrained ball light so rhythm balls do not wash
   assert.doesNotMatch(app, /ctx\.globalAlpha = 0\.42/);
   assert.match(app, /bodyAlphaScale/);
   assert.match(app, /visualRadiusScale/);
-  assert.match(app, /const base = 0\.04 \* Number\(ball\.lightMultiplier \?\? 1\)/);
-  assert.match(app, /energizeBallLight\(ball, 0\.15\)/);
+  assert.match(app, /const base = 0\.032 \* Number\(ball\.lightMultiplier \?\? 1\)/);
+  assert.match(app, /energizeBallLight\(ball, 0\.10\)/);
+  assert.match(app, /Math\.min\(0\.22, \(0\.038 \+ energy \* 0\.10\) \* visual\.lightAlpha\)/);
   assert.match(pixiLayer, /ballLights/);
   assert.match(pixiLayer, /ballGlowContainer/);
   assert.match(pixiLayer, /drawBallLight/);
+  assert.match(pixiLayer, /soft \? \(0\.14 \+ power \* 0\.035\) : \(0\.26 \+ power \* 0\.045\)/);
+  assert.match(pixiLayer, /Math\.min\(0\.34, alpha\)/);
 });
 
 
@@ -179,7 +182,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-mobile-scale-v1/);
+  assert.match(html, /app\.js\?v=20260505-ball-light-soften-v1/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);

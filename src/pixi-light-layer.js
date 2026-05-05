@@ -84,7 +84,7 @@ function drawPhotonDust(graphic, particle, color, power, { soft = false } = {}) 
 }
 
 function drawBallLight(graphic, light, color, power, { soft = false } = {}) {
-  const alpha = clamp(light.alpha) * (soft ? (0.18 + power * 0.045) : (0.34 + power * 0.065));
+  const alpha = clamp(light.alpha) * (soft ? (0.14 + power * 0.035) : (0.26 + power * 0.045));
   if (alpha <= 0.004) {
     graphic.visible = false;
     return;
@@ -93,11 +93,11 @@ function drawBallLight(graphic, light, color, power, { soft = false } = {}) {
   graphic.visible = true;
   graphic.clear();
   graphic.blendMode = 'add';
-  const radius = Math.max(0.4, Number(light.radius || 4)) * (soft ? (3.8 + power * 0.65) : 1.05);
+  const radius = Math.max(0.4, Number(light.radius || 4)) * (soft ? (3.45 + power * 0.55) : 0.98);
   graphic.circle(light.x, light.y, radius);
   graphic.fill({
     color,
-    alpha: Math.min(0.46, alpha),
+    alpha: Math.min(0.34, alpha),
   });
 }
 

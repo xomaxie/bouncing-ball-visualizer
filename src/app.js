@@ -18,7 +18,7 @@ import {
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
 } from './black-hole-particles.js?v=20260505-note-wall-only-v2';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-light-sync-v6';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-ball-light-soften-v1';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 import {
@@ -470,7 +470,7 @@ function decayBallLights(dt) {
   if (!sim) return;
   const settle = Math.exp(-Math.max(0, dt) * 2.65);
   for (const ball of activeBalls()) {
-    const base = 0.04 * Number(ball.lightMultiplier ?? 1);
+    const base = 0.032 * Number(ball.lightMultiplier ?? 1);
     const current = Number(ball.lightEnergy || base);
     const next = base + (current - base) * settle;
     ball.lightEnergy = next < base + 0.004 ? base : next;
@@ -527,7 +527,7 @@ function recordSegmentHit({ segment, ball }) {
     sceneMode: currentSceneMode,
     personality: segment.personality || ball.personality,
   });
-  energizeBallLight(ball, 0.24 + Number(segment.note.velocity || 0.7) * 0.34);
+  energizeBallLight(ball, 0.18 + Number(segment.note.velocity || 0.7) * 0.26);
   sim.log.unshift({ time: sim.time, label, midi: segment.note.midi, track: segment.trackName, color: ball.color });
   sim.log = sim.log.slice(0, 12);
   if (!hasBackingAudio()) audio.trigger(segment.note, segment.note.velocity, Math.max(0.08, Math.min(0.42, segment.note.duration || 0.16)));
@@ -538,7 +538,7 @@ function stepSimulation(dt) {
   updateSceneMode();
   advancePlayback(sim, plan, arena, dt, {
     onLaunch: ({ ball, previous }) => {
-      if (!previous?.spawned) energizeBallLight(ball, 0.15);
+      if (!previous?.spawned) energizeBallLight(ball, 0.10);
     },
     onCollision: () => {
       // Unscheduled wall contacts are no longer a visual event. Note hits are
@@ -758,9 +758,9 @@ function ballLightSnapshots() {
     const orbiting = Boolean(ball.blackHoleOrbit?.active);
     const speed = Math.min(1, Math.hypot(ball.vx || 0, ball.vy || 0) / 1200);
     const personalityLight = Number(ball.lightMultiplier ?? 1);
-    const rawEnergy = Number(ball.lightEnergy || 0.04) * sceneLight * personalityLight * visual.lightAlpha;
-    const energy = Math.max(orbiting ? 0.002 : 0.018, Math.min(0.56, rawEnergy));
-    const alpha = Math.max(orbiting ? 0.0025 : 0.025, Math.min(0.30, (0.050 + energy * 0.14) * visual.lightAlpha));
+    const rawEnergy = Number(ball.lightEnergy || 0.032) * sceneLight * personalityLight * visual.lightAlpha;
+    const energy = Math.max(orbiting ? 0.0016 : 0.014, Math.min(0.44, rawEnergy));
+    const alpha = Math.max(orbiting ? 0.002 : 0.018, Math.min(0.22, (0.038 + energy * 0.10) * visual.lightAlpha));
     if (alpha <= 0.004) continue;
 
     const radius = ball.radius * visual.radiusScale * (3.2 + speed * 1.35 + energy * 2.15) * (orbiting ? 0.32 : 1);
@@ -982,7 +982,7 @@ function drawBalls() {
     ctx.save();
     const scene = currentSceneMode || sceneModeForEnergy();
     const visual = orbitBallVisualState(ball);
-    const lightPulse = Math.max(0, Number(ball.lightEnergy || 0) - 0.04);
+    const lightPulse = Math.max(0, Number(ball.lightEnergy || 0) - 0.032);
     const renderRadius = ball.radius * visual.radiusScale * (1 + Math.min(0.18, lightPulse * 0.12 + Number(scene.ballPulse ?? 0)));
     ctx.globalAlpha = visual.trailAlpha;
     ctx.strokeStyle = ball.color;
