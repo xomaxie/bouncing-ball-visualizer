@@ -49,9 +49,11 @@ export const DEFAULT_SOLVER_OPTIONS = {
   reusableCandidateLimit: 18,
   recycleFallbackCandidateLimit: 48,
   recycleFallbackMinGap: 0.6,
-  orbitReuseCandidateLimit: 18,
-  largeTrackOrbitReuseCandidateLimit: 10,
-  orbitReuseMinGap: 0.45,
+  orbitReuseCandidateLimit: 64,
+  largeTrackOrbitReuseCandidateLimit: 48,
+  orbitReuseBacklogCandidateLimit: 180,
+  largeTrackOrbitReuseBacklogCandidateLimit: 96,
+  orbitReuseDirectIdleThreshold: 0.5,
   largeTrackNoteThreshold: 240,
   largeTrackReusableCandidateLimit: 8,
   largeTrackRecycleFallbackCandidateLimit: 24,
@@ -327,6 +329,55 @@ function predictWallLaunches(state, earliestLaunchTime, latestLaunchTime, arena,
   return launches;
 }
 
+function predictBlackHoleOrbitEntries(state, earliestEntryTime, latestEntryTime, arena, options) {
+  const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
+  const blackHole = activeBlackHole(opts);
+  if (!state || !blackHole || latestEntryTime < earliestEntryTime - 1e-9) return [];
+
+  const entries = [];
+  const gravity = { x: opts.gravityX || 0, y: opts.gravityY || 0, blackHole };
+  const ball = createBall({
+    x: state.x,
+    y: state.y,
+    vx: state.vx,
+    vy: state.vy,
+    radius: opts.ballRadius,
+  });
+  const fixedStep = opts.idleStep || (1 / 120);
+  const maxEntries = Math.max(1, opts.maxBlackHoleOrbitEntries ?? 1);
+  let time = state.time ?? 0;
+  let guard = 0;
+
+  while (time < latestEntryTime - 1e-9 && guard < 20000 && entries.length < maxEntries) {
+    guard += 1;
+    const dt = Math.min(fixedStep, latestEntryTime - time);
+    let collision = null;
+    let capture = null;
+    stepBallInCircle(ball, dt, arena, gravity, (hit) => {
+      collision = hit;
+    }, {
+      ...PLAYBACK_PHYSICS_OPTIONS,
+      onBlackHoleCapture: (hit) => {
+        capture = hit;
+      },
+    });
+    time += dt;
+
+    if (capture) {
+      break;
+    }
+
+    if (!collision || time < earliestEntryTime - 1e-9) continue;
+    entries.push({
+      time,
+      start: { x: collision.x, y: collision.y },
+      kind: 'wall-bounce',
+    });
+  }
+
+  return entries;
+}
+
 function stateAfterScheduledHit(wallTarget, centerTarget, velocity, duration, arrivalTime, arena, options) {
   const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
   const normal = wallNormal(wallTarget, arena);
@@ -423,13 +474,20 @@ function recycleFallbackCandidateLimitForTrack(noteCount, options) {
 }
 
 
-function orbitReuseCandidateLimitForTrack(noteCount, options) {
+function orbitReuseCandidateLimitForTrack(noteCount, options, ballCount = 0) {
   const requested = Math.max(0, options.orbitReuseCandidateLimit ?? DEFAULT_SOLVER_OPTIONS.orbitReuseCandidateLimit);
+  if (requested <= 0) return 0;
   const largeThreshold = options.largeTrackNoteThreshold ?? DEFAULT_SOLVER_OPTIONS.largeTrackNoteThreshold;
-  if (noteCount >= largeThreshold) {
-    return Math.max(0, Math.min(requested, options.largeTrackOrbitReuseCandidateLimit ?? requested));
-  }
-  return requested;
+  const baseLimit = noteCount >= largeThreshold
+    ? Math.max(0, Math.min(requested, options.largeTrackOrbitReuseCandidateLimit ?? requested))
+    : requested;
+  if (ballCount <= baseLimit) return baseLimit;
+
+  const backlogCap = noteCount >= largeThreshold
+    ? Math.max(baseLimit, options.largeTrackOrbitReuseBacklogCandidateLimit ?? DEFAULT_SOLVER_OPTIONS.largeTrackOrbitReuseBacklogCandidateLimit)
+    : Math.max(baseLimit, options.orbitReuseBacklogCandidateLimit ?? DEFAULT_SOLVER_OPTIONS.orbitReuseBacklogCandidateLimit);
+  const backlogLimit = Math.ceil(Math.sqrt(ballCount) * 12);
+  return Math.max(baseLimit, Math.min(backlogCap, backlogLimit, ballCount));
 }
 
 function createPlanBlackHole(arena, options = {}) {
@@ -547,9 +605,9 @@ function orbitReuseFlightCandidates(ball, wallTarget, target, noteTime, arena, o
   const latestLaunchTime = noteTime - opts.minFlightTime;
   if (latestLaunchTime < (ball.availableAt ?? 0) - 1e-9) return [];
 
-  const orbitEntries = predictWallLaunches(ball.state, ball.availableAt, latestLaunchTime, arena, {
+  const orbitEntries = predictBlackHoleOrbitEntries(ball.state, ball.availableAt, latestLaunchTime, arena, {
     ...opts,
-    maxWallLaunchContacts: 1,
+    maxBlackHoleOrbitEntries: 1,
   });
   const orbitEntry = orbitEntries.find((entry) => entry.time >= (ball.availableAt ?? 0) - 1e-9);
   if (!orbitEntry) return [];
@@ -589,6 +647,7 @@ function orbitReuseFlightCandidates(ball, wallTarget, target, noteTime, arena, o
       start,
       spawnSource: 'black-hole-orbit',
       orbitEntryTime: orbitEntry.time,
+      orbitEntryKind: orbitEntry.kind,
       orbitLaunchTime: launchTime,
       orbitWait,
       flight,
@@ -597,6 +656,17 @@ function orbitReuseFlightCandidates(ball, wallTarget, target, noteTime, arena, o
   }
 
   return candidates;
+}
+
+function shouldPreferOrbitReuse(best, options = {}) {
+  if (!best) return true;
+  if (best.spawnSource === 'black-hole-orbit') return false;
+  const opts = { ...DEFAULT_SOLVER_OPTIONS, ...options };
+  const threshold = Math.max(
+    opts.minFlightTime ?? 0,
+    opts.orbitReuseDirectIdleThreshold ?? DEFAULT_SOLVER_OPTIONS.orbitReuseDirectIdleThreshold,
+  );
+  return (best.flight?.duration ?? 0) >= threshold - 1e-9;
 }
 
 function optionsForNote(baseOptions, noteTime) {
@@ -765,47 +835,54 @@ export function planTrack(track, arena, options = {}) {
       }
     }
 
-    if (!best && activeBlackHole(noteOpts) && effectiveOrbitReuseCandidateLimit > 0) {
-      const previousNoteTimeForOrbit = notes[noteIndex - 1]?.time ?? -Infinity;
-      const hasOrbitReuseGap = note.time - previousNoteTimeForOrbit >= (trackOpts.orbitReuseMinGap ?? 0);
-      if (hasOrbitReuseGap) {
-        const orbitCandidates = balls
-          .filter((ball) => ball.state && ball.availableAt <= latestReusableLaunchTime + 1e-9)
-          .sort((a, b) => {
-            const useCount = a.events.length - b.events.length;
-            if (Math.abs(useCount) > 0) return useCount;
-            const age = (a.availableAt ?? 0) - (b.availableAt ?? 0);
-            if (Math.abs(age) > 1e-9) return age;
-            return a.localIndex - b.localIndex;
-          })
-          .slice(0, effectiveOrbitReuseCandidateLimit);
+    const currentOrbitReuseCandidateLimit = orbitReuseCandidateLimitForTrack(notes.length, trackOpts, balls.length);
+    planningStats.orbitReuseCandidateLimit = Math.max(
+      planningStats.orbitReuseCandidateLimit,
+      currentOrbitReuseCandidateLimit,
+    );
 
-        planningStats.maxOrbitReuseCandidatesConsidered = Math.max(
-          planningStats.maxOrbitReuseCandidatesConsidered,
-          orbitCandidates.length,
-        );
-        planningStats.orbitReuseCandidatesConsidered += orbitCandidates.length;
+    if (activeBlackHole(noteOpts) && shouldPreferOrbitReuse(best, noteOpts) && currentOrbitReuseCandidateLimit > 0) {
+      const orbitCandidates = balls
+        .filter((ball) => ball.state && ball.availableAt <= latestReusableLaunchTime + 1e-9)
+        .sort((a, b) => {
+          const useCount = a.events.length - b.events.length;
+          if (Math.abs(useCount) > 0) return useCount;
+          const age = (a.availableAt ?? 0) - (b.availableAt ?? 0);
+          if (Math.abs(age) > 1e-9) return age;
+          return a.localIndex - b.localIndex;
+        })
+        .slice(0, currentOrbitReuseCandidateLimit);
 
-        for (const ball of orbitCandidates) {
-          for (const wallTarget of targetCandidates) {
-            const target = insetPoint(wallTarget, arena, noteOpts.ballRadius);
-            for (const orbit of orbitReuseFlightCandidates(ball, wallTarget, target, note.time, arena, noteOpts)) {
-              const candidate = {
-                ball,
-                wallTarget,
-                target,
-                start: orbit.start,
-                flight: orbit.flight,
-                spawnSource: orbit.spawnSource,
-                orbitEntryTime: orbit.orbitEntryTime,
-                orbitLaunchTime: orbit.orbitLaunchTime,
-                orbitWait: orbit.orbitWait,
-                score: orbit.score,
-              };
-              if (!best || candidate.score < best.score) best = candidate;
-            }
+      planningStats.maxOrbitReuseCandidatesConsidered = Math.max(
+        planningStats.maxOrbitReuseCandidatesConsidered,
+        orbitCandidates.length,
+      );
+      planningStats.orbitReuseCandidatesConsidered += orbitCandidates.length;
+
+      for (const ball of orbitCandidates) {
+        let bestOrbitForBall = null;
+        for (const wallTarget of targetCandidates) {
+          const target = insetPoint(wallTarget, arena, noteOpts.ballRadius);
+          for (const orbit of orbitReuseFlightCandidates(ball, wallTarget, target, note.time, arena, noteOpts)) {
+            const candidate = {
+              ball,
+              wallTarget,
+              target,
+              start: orbit.start,
+              flight: orbit.flight,
+              spawnSource: orbit.spawnSource,
+              orbitEntryTime: orbit.orbitEntryTime,
+              orbitEntryKind: orbit.orbitEntryKind,
+              orbitLaunchTime: orbit.orbitLaunchTime,
+              orbitWait: orbit.orbitWait,
+              score: orbit.score,
+            };
+            if (!bestOrbitForBall || candidate.score < bestOrbitForBall.score) bestOrbitForBall = candidate;
           }
-          if (best) break;
+        }
+        if (bestOrbitForBall) {
+          best = bestOrbitForBall;
+          break;
         }
       }
     }
@@ -862,6 +939,7 @@ export function planTrack(track, arena, options = {}) {
       missDistance: best.flight.missDistance || 0,
       spawnSource: best.spawnSource || (best.ball.events.length ? 'reuse' : 'unknown'),
       orbitEntryTime: best.orbitEntryTime ?? null,
+      orbitEntryKind: best.orbitEntryKind ?? null,
       orbitLaunchTime: best.orbitLaunchTime ?? null,
       orbitWait: best.orbitWait ?? null,
       parkInBlackHoleAfterBounce: false,

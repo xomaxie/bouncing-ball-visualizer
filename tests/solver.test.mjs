@@ -336,6 +336,84 @@ test('planTrack redirects waiting-room black-hole orbit balls before spawning ne
   );
 });
 
+test('planTrack does not redirect balls that were destroyed by crossing the black hole', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
+  const notes = [
+    { time: 0.8, duration: 0.08, midi: 32, velocity: 0.76 },
+    { time: 2.5, duration: 0.08, midi: 36, velocity: 0.76 },
+  ];
+
+  const planned = planTrack({ id: 0, name: 'black-hole capture is terminal', notes }, arena, {
+    gravityY: 160,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    spawnPreferredFlightTime: 0.32,
+    maxSpeed: 1550,
+    wallLaunchTolerance: -1,
+    maxWallLaunchContacts: 0,
+    blackHole,
+    fieldStep: 1 / 240,
+    pathSamples: 30,
+  });
+
+  assert.notEqual(
+    planned.segments[1].spawnSource,
+    'black-hole-orbit',
+    'a ball whose idle path crosses the event horizon should be destroyed, not parked and redirected',
+  );
+  assert.notEqual(
+    planned.segments[1].ballId,
+    planned.segments[0].ballId,
+    'the second note should use a new helper because the first ball fell into the black hole',
+  );
+});
+
+test('planTrack aggressively drains existing black-hole orbit balls for dense later bursts', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
+  const initialBurst = Array.from({ length: 18 }, (_, index) => ({
+    time: 0,
+    duration: 0.08,
+    midi: 32 + (index % 9) * 4,
+    velocity: 0.76,
+  }));
+  const laterBurst = Array.from({ length: 14 }, (_, index) => ({
+    time: 2.5 + index * 0.08,
+    duration: 0.08,
+    midi: 36 + (index % 7) * 5,
+    velocity: 0.8,
+  }));
+
+  const planned = planTrack({ id: 0, name: 'orbit backlog should drain', notes: [...initialBurst, ...laterBurst] }, arena, {
+    gravityY: 160,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    spawnPreferredFlightTime: 0.32,
+    maxSpeed: 1550,
+    reusableCandidateLimit: 1,
+    blackHole,
+    fieldStep: 1 / 240,
+    pathSamples: 30,
+    largeTrackNoteThreshold: 9999,
+  });
+
+  const orbitSegments = planned.segments.filter((segment) => segment.spawnSource === 'black-hole-orbit');
+  const reusedFromExistingBacklog = planned.segments.filter((segment) => segment.note.time >= laterBurst[0].time && ['reuse', 'black-hole-orbit'].includes(segment.spawnSource));
+  const spawnedAfterOrbitBacklog = planned.segments.filter((segment) => segment.note.time >= laterBurst[0].time && !['reuse', 'black-hole-orbit'].includes(segment.spawnSource));
+
+  assert.ok(
+    reusedFromExistingBacklog.length >= laterBurst.length - 3,
+    `expected dense later burst to drain waiting-room/reusable balls before spawning; reused=${reusedFromExistingBacklog.length}/${laterBurst.length}, orbit redirects=${orbitSegments.length}`,
+  );
+  assert.ok(
+    planned.ballCount <= initialBurst.length + 3,
+    `expected planner to reuse the ${initialBurst.length} waiting balls instead of spawning new ones; got ${planned.ballCount}`,
+  );
+  assert.ok(
+    spawnedAfterOrbitBacklog.length <= 3,
+    `expected at most three new helpers while orbit backlog exists; spawned later=${spawnedAfterOrbitBacklog.length}`,
+  );
+});
+
 test('newly allocated helper balls originate from the black-hole rim when the well is enabled', () => {
   const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
   const notes = Array.from({ length: 10 }, (_, index) => ({
@@ -442,6 +520,45 @@ test('planTrack automatically uses a tighter reusable scan cap for large MIDI-st
   assert.ok(
     planned.planningStats.maxReusableCandidatesConsidered <= 8,
     `large default tracks should stay responsive by considering no more than 8 reusable balls, saw ${planned.planningStats.maxReusableCandidatesConsidered}`,
+  );
+});
+
+test('large tracks keep a deeper black-hole orbit scan than the ordinary reusable scan', () => {
+  const blackHole = { enabled: true, x: arena.cx, y: arena.cy, radius: 12, strength: 0, softeningRadius: 40, eventHorizonRadius: 16 };
+  const initialBurst = Array.from({ length: 72 }, (_, index) => ({
+    time: 0,
+    duration: 0.08,
+    midi: 30 + (index % 18),
+    velocity: 0.72,
+  }));
+  const laterBurst = Array.from({ length: 180 }, (_, index) => ({
+    time: 2.6 + index * 0.04,
+    duration: 0.08,
+    midi: 36 + (index % 12),
+    velocity: 0.78,
+  }));
+
+  const planned = planTrack({ id: 0, name: 'large orbit backlog', notes: [...initialBurst, ...laterBurst] }, arena, {
+    gravityY: 160,
+    minFlightTime: 0.28,
+    preferredFlightTime: 0.82,
+    spawnPreferredFlightTime: 0.32,
+    maxSpeed: 1550,
+    reusableCandidateLimit: 4,
+    largeTrackReusableCandidateLimit: 4,
+    blackHole,
+    fieldStep: 1 / 240,
+    pathSamples: 18,
+  });
+
+  assert.ok(planned.notes.length >= 240, 'test should exercise the large-track candidate path');
+  assert.ok(
+    planned.planningStats.maxReusableCandidatesConsidered <= 4,
+    `ordinary reusable scan should stay capped; saw ${planned.planningStats.maxReusableCandidatesConsidered}`,
+  );
+  assert.ok(
+    planned.planningStats.maxOrbitReuseCandidatesConsidered >= 48,
+    `black-hole waiting-room scan should look past the first few candidates; saw ${planned.planningStats.maxOrbitReuseCandidatesConsidered}`,
   );
 });
 
