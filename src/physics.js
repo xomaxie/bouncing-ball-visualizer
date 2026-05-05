@@ -64,12 +64,21 @@ export function createBlackHoleOrbit(ballLike = {}, blackHoleConfig = null, curr
   const safeDistance = Math.max(captureRadius + 6, currentDistance || fallbackDistance);
   const wellRadius = Math.max(4, Number(blackHole.radius || 12));
   const softeningRadius = Math.max(1, Number(blackHole.softeningRadius || wellRadius * 2.6));
-  const storageJitter = wellRadius * (0.8 + randomUnitForBallId(ballId, `storage:${Math.round(Number(currentTime || 0) * 1000)}`) * 2.35);
-  const storageDistance = Math.max(
-    safeDistance,
+  const storageJitter = wellRadius * randomUnitForBallId(ballId, `storage:${Math.round(Number(currentTime || 0) * 1000)}`) * 1.2;
+  const minimumStorageDistance = Math.max(
     captureRadius + Math.max(20, ballRadius * 5.2),
-    wellRadius * 5.4 + storageJitter,
-    softeningRadius * 1.72,
+    wellRadius * 4.4 + storageJitter,
+    softeningRadius * 1.68,
+  );
+  const maximumStorageDistance = Math.max(
+    minimumStorageDistance + wellRadius * 0.8,
+    captureRadius + Math.max(52, ballRadius * 7.2),
+    wellRadius * 6.2,
+    softeningRadius * 2.18,
+  );
+  const storageDistance = Math.max(
+    minimumStorageDistance,
+    Math.min(safeDistance, maximumStorageDistance),
   );
   const unit = currentDistance > 1e-6
     ? { x: dx / currentDistance, y: dy / currentDistance }
@@ -89,6 +98,7 @@ export function createBlackHoleOrbit(ballLike = {}, blackHoleConfig = null, curr
     angle: Math.atan2(unit.y, unit.x),
     radius: storageDistance,
     initialRadius: storageDistance,
+    maxRadius: storageDistance,
     captureRadius,
     rotations,
     angularVelocity,
@@ -106,7 +116,10 @@ function sampleBlackHoleOrbitPoint(orbit, blackHole, elapsed) {
   const visibleRadius = Math.max(orbit.captureRadius, rawRadius);
   const progress = 1 - Math.max(0, Math.min(1, (visibleRadius - orbit.captureRadius) / Math.max(1, orbit.initialRadius - orbit.captureRadius)));
   const wobble = Math.sin(angle * 2.3 + orbit.wobblePhase) * orbit.wobble * (1 - progress) * 0.55;
-  const radius = Math.max(orbit.captureRadius, visibleRadius + wobble);
+  const maxRadius = Number.isFinite(Number(orbit.maxRadius))
+    ? Math.max(orbit.captureRadius, Number(orbit.maxRadius))
+    : Math.max(orbit.captureRadius, Number(orbit.initialRadius || visibleRadius));
+  const radius = Math.min(maxRadius, Math.max(orbit.captureRadius, visibleRadius + wobble));
   return {
     x: blackHole.x + Math.cos(angle) * radius,
     y: blackHole.y + Math.sin(angle) * radius,

@@ -150,6 +150,23 @@ test('black-hole waiting orbits start in a wider faint storage band', () => {
   assert.ok(orbit.lightAlpha <= 0.24, `waiting orbit should emit less light; got ${orbit.lightAlpha}`);
 });
 
+test('black-hole waiting orbits cap far wall entries to a tight storage band', () => {
+  const blackHole = { enabled: true, x: 0, y: 0, radius: 12, strength: 0, softeningRadius: 34, eventHorizonRadius: 10 };
+  const ball = createBall({ id: 'far-wall-entry', x: 190, y: 0, radius: 5 });
+
+  const orbit = createBlackHoleOrbit(ball, blackHole, 3);
+  const first = sampleBlackHoleOrbit(orbit, blackHole, 3);
+
+  assert.ok(
+    orbit.initialRadius <= 84,
+    `far wall entries should not create huge waiting orbits; initial radius=${orbit.initialRadius}`,
+  );
+  assert.ok(
+    first.radius <= 84,
+    `sampled far wall entry should stay near the black hole; radius=${first.radius}`,
+  );
+});
+
 test('wall contacts inject enough inward bounce to avoid side-wall dribbling', () => {
   const ball = createBall({ x: 92, y: 0, vx: 0, vy: 42, radius: 8 });
   let collisions = 0;

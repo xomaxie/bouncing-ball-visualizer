@@ -5,7 +5,7 @@ import {
   pitchToWallTarget,
   summarizeTracks,
   wallColorForTarget,
-} from './music.js?v=20260505-pixi-ball-readability-v1';
+} from './music.js?v=20260505-tight-orbit-v1';
 import { createEnergyProfile, dynamicSolverOptionsForEnergy, energyAtTime } from './energy.js';
 import {
   activeBlackHole,
@@ -18,7 +18,7 @@ import {
   simulateFieldState,
   stepBallInCircle,
   PLAYBACK_PHYSICS_OPTIONS,
-} from './physics.js?v=20260505-pixi-ball-readability-v1';
+} from './physics.js?v=20260505-tight-orbit-v1';
 
 export const DEFAULT_SOLVER_OPTIONS = {
   ballRadius: 8,
