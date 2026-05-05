@@ -248,13 +248,21 @@ export function hitPlaybackSegment(sim, plan, arena, segment) {
   return { ball, segment, parkedInBlackHoleOrbit };
 }
 
-function processEventsAtCurrentTime(sim, plan, arena, callbacks) {
+function launchDueSegmentsAtCurrentTime(sim, plan, callbacks, predicate = () => true) {
   for (const segment of plan.events) {
     const state = sim.segmentStates.get(segment.id);
     if (!state || state.launched || segment.launchTime > sim.time + EPSILON) continue;
+    if (!predicate(segment, state)) continue;
     const launch = launchPlaybackSegment(sim, segment);
     if (launch) callbacks.onLaunch?.(launch);
   }
+}
+
+function processEventsAtCurrentTime(sim, plan, arena, callbacks) {
+  launchDueSegmentsAtCurrentTime(sim, plan, callbacks, (segment) => (
+    Math.abs((segment.arrivalTime ?? 0) - (segment.launchTime ?? 0)) <= EPSILON
+      && segment.arrivalTime <= sim.time + EPSILON
+  ));
 
   for (const segment of plan.events) {
     const state = sim.segmentStates.get(segment.id);
@@ -273,6 +281,10 @@ function processEventsAtCurrentTime(sim, plan, arena, callbacks) {
       }
     }
   }
+
+  launchDueSegmentsAtCurrentTime(sim, plan, callbacks, (segment) => (
+    (segment.arrivalTime ?? Infinity) > sim.time + EPSILON
+  ));
 }
 
 function nextPendingEventTime(sim, plan, targetTime) {

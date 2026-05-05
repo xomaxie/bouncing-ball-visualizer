@@ -74,6 +74,62 @@ test('advancePlayback uses per-segment adaptive gravity for scheduled note fligh
   assert.ok(Math.hypot(ball.x - expected.x, ball.y - expected.y) < 1e-6);
 });
 
+test('advancePlayback resolves a note hit before redirecting the same ball at the same timestamp', () => {
+  const first = {
+    id: 'same-time:0',
+    ballId: 'same-time-ball',
+    trackId: 0,
+    trackName: 'same-time ordering',
+    target: { x: arena.cx + arena.radius, y: arena.cy },
+    centerTarget: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    start: { x: arena.cx - arena.radius + 8, y: arena.cy },
+    launchTime: 0,
+    arrivalTime: 1,
+    duration: 1,
+    velocity: { x: (arena.radius - 8) * 2, y: 0 },
+    gravityY: 0,
+    wallColor: '#fff',
+    note: { time: 1, midi: 60, velocity: 0.8 },
+  };
+  const second = {
+    id: 'same-time:1',
+    ballId: 'same-time-ball',
+    trackId: 0,
+    trackName: 'same-time ordering',
+    target: { x: arena.cx, y: arena.cy - arena.radius },
+    centerTarget: { x: arena.cx, y: arena.cy - arena.radius + 8 },
+    start: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    launchTime: 1,
+    arrivalTime: 1.5,
+    duration: 0.5,
+    velocity: { x: -384, y: -384 },
+    gravityY: 0,
+    wallColor: '#fff',
+    note: { time: 1.5, midi: 72, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'same-time-ball', events: [first, second] }], segments: [first, second] }],
+    events: [first, second],
+    duration: 1.5,
+    options: { ballRadius: 8, gravityY: 0 },
+  };
+  const sim = createPlaybackState(plan, arena);
+  const hitIds = [];
+  const missIds = [];
+  const launchIds = [];
+
+  advancePlayback(sim, plan, arena, 1, {
+    onHit: ({ segment }) => hitIds.push(segment.id),
+    onMiss: ({ segment }) => missIds.push(segment.id),
+    onLaunch: ({ segment }) => launchIds.push(segment.id),
+  });
+
+  assert.deepEqual(hitIds, ['same-time:0'], 'the arriving note should resolve before the next same-ball launch');
+  assert.deepEqual(missIds, [], 'same-timestamp redirect should not cause a false missed note');
+  assert.deepEqual(launchIds, ['same-time:0', 'same-time:1'], 'the next note should still launch at the shared timestamp');
+  assert.equal(sim.balls.get('same-time-ball').armedSegmentId, 'same-time:1');
+});
+
 test('advancePlayback uses the same black-hole field that the solver planned against', () => {
   const blackHole = { enabled: true, x: arena.cx, y: arena.cy, strength: 2000000, softeningRadius: 58, eventHorizonRadius: 16 };
   const segment = {
