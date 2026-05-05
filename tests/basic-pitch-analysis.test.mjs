@@ -1,14 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  alignBasicPitchNotesToAudioOnsets,
   analyzeMp3WithPreferredTranscriber,
   basicPitchNotesToSong,
   detectAudioActivityWindow,
+  detectAudioOnsetTimes,
   serverBasicPitchResponseToSong,
   transcribeAudioFileWithServerBasicPitch,
 } from '../src/basic-pitch-analysis.js';
 
 const fakeAudioBuffer = { duration: 3.2, sampleRate: 44100 };
+
+
+function makePulseAudioBuffer({ duration = 2, sampleRate = 1000, pulses = [0.5, 1.0] } = {}) {
+  const length = Math.ceil(duration * sampleRate);
+  const data = new Float32Array(length);
+  for (const pulse of pulses) {
+    const center = Math.round(pulse * sampleRate);
+    for (let offset = 0; offset < Math.round(0.035 * sampleRate); offset += 1) {
+      const index = center + offset;
+      if (index >= 0 && index < data.length) {
+        const envelope = 1 - offset / Math.max(1, Math.round(0.035 * sampleRate));
+        data[index] += Math.sin(offset * 0.9) * 0.7 * envelope;
+      }
+    }
+  }
+  return {
+    duration,
+    length,
+    sampleRate,
+    numberOfChannels: 1,
+    getChannelData: () => data,
+  };
+}
 
 function makeFakeAudioBufferWithTailSilence({ duration = 15, activeEnd = 3.2, sampleRate = 100 } = {}) {
   const length = Math.ceil(duration * sampleRate);
@@ -25,6 +50,51 @@ function makeFakeAudioBufferWithTailSilence({ duration = 15, activeEnd = 3.2, sa
     getChannelData: () => data,
   };
 }
+
+
+test('Basic Pitch MP3 notes can be rhythm-aligned to decoded audio onsets', () => {
+  const audioBuffer = makePulseAudioBuffer({ pulses: [0.5, 1.0] });
+  const onsets = detectAudioOnsetTimes(audioBuffer, {
+    rhythmOnsetFrameSeconds: 0.024,
+    rhythmOnsetHopSeconds: 0.006,
+    rhythmOnsetMinSpacingSeconds: 0.08,
+  });
+
+  assert.ok(onsets.some((time) => Math.abs(time - 0.5) < 0.035), `expected onset near 0.5s, got ${onsets.join(', ')}`);
+  assert.ok(onsets.some((time) => Math.abs(time - 1.0) < 0.035), `expected onset near 1.0s, got ${onsets.join(', ')}`);
+
+  const aligned = alignBasicPitchNotesToAudioOnsets([
+    { time: 0.565, duration: 0.18, midi: 60, velocity: 0.8 },
+    { time: 1.062, duration: 0.18, midi: 64, velocity: 0.8 },
+  ], audioBuffer, {
+    rhythmOnsetFrameSeconds: 0.024,
+    rhythmOnsetHopSeconds: 0.006,
+    rhythmOnsetMinSpacingSeconds: 0.08,
+    rhythmAlignmentWindowSeconds: 0.09,
+  });
+
+  assert.equal(aligned.stats.rhythmAlignmentApplied, 2);
+  assert.ok(Math.abs(aligned.notes[0].time - 0.5) < 0.04, `first note should align to pulse onset: ${aligned.notes[0].time}`);
+  assert.ok(Math.abs(aligned.notes[1].time - 1.0) < 0.04, `second note should align to pulse onset: ${aligned.notes[1].time}`);
+});
+
+test('basicPitchNotesToSong reports rhythm alignment metadata for MP3 sync checks', () => {
+  const audioBuffer = makePulseAudioBuffer({ pulses: [0.5] });
+  const song = basicPitchNotesToSong([
+    { startTimeSeconds: 0.565, durationSeconds: 0.18, pitchMidi: 60, amplitude: 0.8 },
+  ], audioBuffer, {
+    rhythmOnsetFrameSeconds: 0.024,
+    rhythmOnsetHopSeconds: 0.006,
+    rhythmAlignmentWindowSeconds: 0.09,
+  });
+  const note = song.tracks.flatMap((track) => track.notes)[0];
+
+  assert.equal(song.analysis.rhythmAlignmentApplied, 1);
+  assert.ok(song.analysis.rhythmOnsets >= 1);
+  assert.ok(song.analysis.rhythmAlignmentAverageAbsMs > 25);
+  assert.ok(note.rhythmAligned);
+  assert.ok(Math.abs(note.time - 0.5) < 0.04);
+});
 
 test('basicPitchNotesToSong converts Basic Pitch notes into sorted low/mid/high visualizer tracks', () => {
   const song = basicPitchNotesToSong([

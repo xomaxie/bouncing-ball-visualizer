@@ -21,6 +21,13 @@ const DEFAULT_CONTENT_TRIM_OPTIONS = {
   leadingPaddingSeconds: 0.12,
   tailPaddingSeconds: 0.45,
   minimumClippedNoteSeconds: 0.04,
+  rhythmAlignment: true,
+  rhythmOnsetFrameSeconds: 0.032,
+  rhythmOnsetHopSeconds: 0.012,
+  rhythmOnsetMinSpacingSeconds: 0.045,
+  rhythmOnsetFluxRatio: 0.20,
+  rhythmOnsetEnergyRatio: 0.030,
+  rhythmAlignmentWindowSeconds: 0.085,
 };
 
 function bandForMidi(midi) {
@@ -143,6 +150,124 @@ export function detectAudioActivityWindow(audioInfo = {}, options = {}) {
   };
 }
 
+
+export function detectAudioOnsetTimes(audioInfo = {}, options = {}) {
+  const opts = { ...DEFAULT_CONTENT_TRIM_OPTIONS, ...options };
+  if (
+    !audioInfo ||
+    typeof audioInfo.getChannelData !== 'function' ||
+    !Number.isFinite(audioInfo.sampleRate) ||
+    audioInfo.sampleRate <= 0
+  ) {
+    return [];
+  }
+
+  const sampleRate = audioInfo.sampleRate;
+  const duration = audioDurationSeconds(audioInfo);
+  const length = Math.max(0, Math.floor(audioInfo.length || duration * sampleRate));
+  const channelCount = Math.max(1, Math.floor(audioInfo.numberOfChannels || 1));
+  if (length <= 0) return [];
+
+  const frameSize = Math.max(16, Math.round((opts.rhythmOnsetFrameSeconds ?? 0.032) * sampleRate));
+  const hopSize = Math.max(8, Math.round((opts.rhythmOnsetHopSeconds ?? 0.012) * sampleRate));
+  const frameCount = Math.max(1, Math.ceil(Math.max(1, length - frameSize) / hopSize) + 1);
+  const energies = [];
+  const times = [];
+
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const start = Math.min(length - 1, frame * hopSize);
+    const end = Math.min(length, start + frameSize);
+    const stride = Math.max(1, Math.floor((end - start) / 512));
+    let sum = 0;
+    let count = 0;
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      const data = audioInfo.getChannelData(channel);
+      for (let index = start; index < end; index += stride) {
+        const value = data[index] || 0;
+        sum += value * value;
+        count += 1;
+      }
+    }
+    energies.push(Math.sqrt(sum / Math.max(1, count)));
+    times.push(start / sampleRate);
+    if (end >= length) break;
+  }
+
+  const fluxes = energies.map((energy, index) => Math.max(0, energy - Math.max(energies[index - 1] || 0, (energies[index - 2] || 0) * 0.86)));
+  const peakEnergy = Math.max(0, ...energies);
+  const avgEnergy = energies.reduce((sum, value) => sum + value, 0) / Math.max(1, energies.length);
+  const peakFlux = Math.max(0, ...fluxes);
+  const fluxThreshold = Math.max(peakFlux * (opts.rhythmOnsetFluxRatio ?? 0.20), avgEnergy * 0.22, 1e-6);
+  const energyThreshold = Math.max(peakEnergy * (opts.rhythmOnsetEnergyRatio ?? 0.030), avgEnergy * 0.45, 1e-6);
+  const minSpacing = Math.max(0.01, Number(opts.rhythmOnsetMinSpacingSeconds ?? 0.045));
+  const onsets = [];
+
+  for (let index = 1; index < fluxes.length - 1; index += 1) {
+    const flux = fluxes[index];
+    if (flux < fluxThreshold || energies[index] < energyThreshold) continue;
+    if (flux < fluxes[index - 1] || flux < fluxes[index + 1]) continue;
+    const time = times[index];
+    const previous = onsets.at(-1);
+    if (previous && time - previous.time < minSpacing) {
+      if (flux > previous.flux) onsets[onsets.length - 1] = { time, flux, energy: energies[index] };
+      continue;
+    }
+    onsets.push({ time, flux, energy: energies[index] });
+  }
+
+  return onsets.map((onset) => onset.time);
+}
+
+function nearestOnsetTime(onsets, time, windowSeconds) {
+  if (!onsets.length) return null;
+  let best = null;
+  let bestDistance = Infinity;
+  for (const onset of onsets) {
+    const distance = Math.abs(onset - time);
+    if (distance > windowSeconds && onset > time + windowSeconds) break;
+    if (distance <= windowSeconds && distance < bestDistance) {
+      best = onset;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+export function alignBasicPitchNotesToAudioOnsets(notes = [], audioInfo = {}, options = {}) {
+  const opts = { ...DEFAULT_CONTENT_TRIM_OPTIONS, ...options };
+  if (opts.rhythmAlignment === false || !notes.length) {
+    return { notes, stats: { rhythmOnsets: 0, rhythmAlignmentApplied: 0, rhythmAlignmentAverageAbsMs: 0 } };
+  }
+
+  const onsets = detectAudioOnsetTimes(audioInfo, opts);
+  const windowSeconds = Math.max(0, Number(opts.rhythmAlignmentWindowSeconds ?? 0.085));
+  if (!onsets.length || windowSeconds <= 0) {
+    return { notes, stats: { rhythmOnsets: onsets.length, rhythmAlignmentApplied: 0, rhythmAlignmentAverageAbsMs: 0 } };
+  }
+
+  let applied = 0;
+  let absoluteShiftSum = 0;
+  const aligned = notes.map((note) => {
+    const time = Number(note.time || 0);
+    const onset = nearestOnsetTime(onsets, time, windowSeconds);
+    if (onset === null) return note;
+    const shift = onset - time;
+    if (Math.abs(shift) < 0.006) return note;
+    applied += 1;
+    absoluteShiftSum += Math.abs(shift);
+    return { ...note, time: Math.max(0, onset), rhythmAligned: true, rhythmShiftSeconds: shift };
+  });
+
+  return {
+    notes: aligned,
+    stats: {
+      rhythmOnsets: onsets.length,
+      rhythmAlignmentApplied: applied,
+      rhythmAlignmentAverageAbsMs: applied ? (absoluteShiftSum / applied) * 1000 : 0,
+    },
+  };
+}
+
 function normalizeAndClipBasicPitchNote(raw, trimWindow, stats) {
   const note = normalizeBasicPitchNote(raw);
   const noteEnd = note.time + note.duration;
@@ -196,9 +321,15 @@ export function basicPitchNotesToSong(rawNotes, audioInfo = {}, options = {}) {
     };
   });
 
+  const normalizedNotes = [];
   for (const raw of rawNotes ?? []) {
     const normalized = normalizeAndClipBasicPitchNote(raw, trimWindow, trimStats);
-    if (!normalized) continue;
+    if (normalized) normalizedNotes.push(normalized);
+  }
+
+  const { notes: alignedNotes, stats: rhythmAlignmentStats } = alignBasicPitchNotesToAudioOnsets(normalizedNotes, audioInfo, trimOptions);
+
+  for (const normalized of alignedNotes) {
     const track = tracks[bandForMidi(normalized.midi)];
     track.notes.push({
       ...normalized,
@@ -232,6 +363,7 @@ export function basicPitchNotesToSong(rawNotes, audioInfo = {}, options = {}) {
       audioContentEndSeconds: activity.end,
       trimTailCutoffSeconds: trimWindow.end,
       ...trimStats,
+      ...rhythmAlignmentStats,
       model: 'ICASSP 2022 Basic Pitch TensorFlow.js graph model',
     },
   };

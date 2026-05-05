@@ -7,7 +7,7 @@ import {
 } from './basic-pitch-analysis.js';
 import { noteName, trackColor, frequencyForMidi, wallColorForTarget } from './music.js?v=20260505-note-wall-only-v2';
 import { planSong } from './solver.js?v=20260505-note-wall-only-v2';
-import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-zero-missed-notes-v1';
+import { advancePlayback, createPlaybackState } from './playback.js?v=20260505-light-sync-v5';
 import { AudioEngine, soundButtonLabel } from './audio.js?v=20260505-library-storage-v2';
 import { ROYALTY_FREE_SAMPLES, fetchSampleMidi, sampleLabel } from './samples.js';
 import { createVisualEffectsState, decayVisualEffects, registerNoteImpact } from './visual-effects.js?v=20260505-disc-light-particles-v1';
@@ -18,7 +18,7 @@ import {
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
 } from './black-hole-particles.js?v=20260505-note-wall-only-v2';
-import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-note-wall-only-v2';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-light-sync-v5';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 import {
@@ -105,8 +105,12 @@ let pixiLightLayerPromise = null;
 let lastPixiLightCounts = { blackHoleLightParticleCount: 0, ballLightCount: 0 };
 let currentSceneMode = sceneModeForEnergy();
 let smoothedBlackHoleEnergy = null;
+let lastRenderAudioVisualDrift = null;
+let lastFrameSyncPasses = 0;
 const speedValues = [0.35, 1, 1.75];
 const panelRenderIntervalMs = 100;
+const maxRenderedBallLights = 128;
+const ballLightGridPx = 18;
 let lastPanelRenderAt = -Infinity;
 let lastTrackListSignature = '';
 let lastEventLogSignature = '';
@@ -739,27 +743,68 @@ function colorWithAlpha(color, alpha) {
 }
 
 function ballLightSnapshots() {
-  if (!arena.radius) return [];
+  if (!arena.radius || !sim) return [];
   const scene = currentSceneMode || sceneModeForEnergy();
   const sceneLight = Number(scene.lightMultiplier ?? 1);
+  const cells = new Map();
+  const directLights = [];
+  let candidateCount = 0;
 
-  return activeBalls().map((ball) => {
+  for (const ball of sim.balls.values()) {
+    if (!ball.spawned || ball.retired) continue;
     const visual = orbitBallVisualState(ball);
     const orbiting = Boolean(ball.blackHoleOrbit?.active);
     const speed = Math.min(1, Math.hypot(ball.vx || 0, ball.vy || 0) / 1200);
     const personalityLight = Number(ball.lightMultiplier ?? 1);
     const rawEnergy = Number(ball.lightEnergy || 0.04) * sceneLight * personalityLight * visual.lightAlpha;
-    const energy = Math.max(orbiting ? 0.003 : 0.018, Math.min(0.56, rawEnergy));
-    const radius = ball.radius * visual.radiusScale * (3.2 + speed * 1.35 + energy * 2.15) * (orbiting ? 0.48 : 1);
-    const alpha = Math.max(orbiting ? 0.006 : 0.025, Math.min(0.30, (0.050 + energy * 0.14) * visual.lightAlpha));
-    return {
+    const energy = Math.max(orbiting ? 0.002 : 0.018, Math.min(0.56, rawEnergy));
+    const alpha = Math.max(orbiting ? 0.0025 : 0.025, Math.min(0.30, (0.050 + energy * 0.14) * visual.lightAlpha));
+    if (alpha <= 0.004) continue;
+
+    const radius = ball.radius * visual.radiusScale * (3.2 + speed * 1.35 + energy * 2.15) * (orbiting ? 0.32 : 1);
+    if (radius <= 0.5) continue;
+
+    candidateCount += 1;
+    const light = {
       x: ball.x,
       y: ball.y,
       radius,
       alpha,
       color: ball.color,
+      orbiting,
+      priority: alpha * radius * (orbiting ? 0.34 : 1),
     };
-  }).filter((light) => light.alpha > 0.004 && light.radius > 0.5);
+
+    // Hundreds of waiting-room/orbit balls can be present around the black hole.
+    // They should remain visually subtle and should not each receive an expensive
+    // WebGL glow; cluster them into screen cells and keep the brightest candidate.
+    if (orbiting || candidateCount > maxRenderedBallLights) {
+      const key = `${Math.round(light.x / ballLightGridPx)}:${Math.round(light.y / ballLightGridPx)}`;
+      const current = cells.get(key);
+      if (!current || light.priority > current.priority) cells.set(key, light);
+    } else {
+      directLights.push(light);
+    }
+  }
+
+  const budget = Math.max(24, maxRenderedBallLights - directLights.length);
+  const clustered = [...cells.values()]
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, budget);
+  const lights = [...directLights, ...clustered]
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, maxRenderedBallLights)
+    .map(({ priority, orbiting, ...light }) => light);
+  lastPixiLightCounts.ballLightCandidateCount = candidateCount;
+  return lights;
+}
+
+function blackHoleLightParticleBudget() {
+  const active = activeBallCount();
+  if (active >= 220) return 460;
+  if (active >= 120) return 620;
+  if (active >= 64) return 820;
+  return 1120;
 }
 
 function renderPixiLightSystem({ lightParticles = null, power = null } = {}) {
@@ -768,8 +813,12 @@ function renderPixiLightSystem({ lightParticles = null, power = null } = {}) {
   const blackHole = plan?.blackHole;
   const system = blackHole ? ensureBlackHoleParticleSystem() : null;
   const energyState = blackHoleEnergyState();
-  const nextLightParticles = lightParticles
+  const rawLightParticles = lightParticles
     ?? (system && blackHole ? blackHoleLightParticleSnapshots(system, blackHole, energyState, blackHoleDominantColorState()) : []);
+  const particleBudget = Math.min(layer.maxParticles || 1120, blackHoleLightParticleBudget());
+  const nextLightParticles = rawLightParticles.length > particleBudget
+    ? rawLightParticles.slice(0, particleBudget)
+    : rawLightParticles;
   const visual = blackHole ? blackHoleVisualState(blackHole, energyState) : null;
   const renderPower = power ?? Math.max(0, Math.min(1.15, Number(visual?.power ?? visual?.intensity ?? 0)));
   const result = layer.render({
@@ -778,9 +827,11 @@ function renderPixiLightSystem({ lightParticles = null, power = null } = {}) {
     arena,
     power: renderPower,
   }) || { particleCount: 0, ballLightCount: 0 };
+  const ballLightCandidateCount = lastPixiLightCounts.ballLightCandidateCount ?? 0;
   lastPixiLightCounts = {
     blackHoleLightParticleCount: Number(result.particleCount || 0),
     ballLightCount: Number(result.ballLightCount || 0),
+    ballLightCandidateCount,
   };
   return true;
 }
@@ -829,7 +880,7 @@ function ensurePixiLightLayer() {
     height: H || canvasFrame.clientHeight || window.innerHeight || 1,
     dpr: DPR(),
     maxParticles: 1220,
-    maxBallLights: 640,
+    maxBallLights: maxRenderedBallLights,
   })
     .then((layer) => {
       pixiLightLayer = layer;
@@ -1085,6 +1136,8 @@ window.MusicVisualizerDebug = {
     format: song?.format,
     transcriber: song?.analysis?.transcriber,
     highAccuracyError: song?.analysis?.highAccuracyError,
+    rhythmAlignmentApplied: song?.analysis?.rhythmAlignmentApplied ?? 0,
+    rhythmAlignmentAverageAbsMs: song?.analysis?.rhythmAlignmentAverageAbsMs ?? 0,
     totalBalls: plan?.totalBalls ?? 0,
     activeBalls: activeBallCount(),
     retiredBalls: sim ? [...sim.balls.values()].filter((ball) => ball.retired).length : 0,
@@ -1123,7 +1176,14 @@ window.MusicVisualizerDebug = {
     blackHoleDominantNoteEnergy: visualEffects?.dominantNoteEnergy ?? 0,
     pixiLightLayer: pixiLightLayer?.kind ?? (pixiLightLayerPromise ? 'loading' : 'pending'),
     blackHoleLightParticleCount: lastPixiLightCounts.blackHoleLightParticleCount,
+    blackHoleLightBudget: blackHoleLightParticleBudget(),
     ballLightCount: lastPixiLightCounts.ballLightCount,
+    ballLightCandidateCount: lastPixiLightCounts.ballLightCandidateCount ?? 0,
+    ballLightBudget: maxRenderedBallLights,
+    audioVisualDrift: Number.isFinite(audio.backingTimelineTime?.()) && sim ? sim.time - audio.backingTimelineTime() : null,
+    lastRenderAudioVisualDrift,
+    lastFrameSyncPasses,
+    missedNotes: sim ? [...sim.segmentStates.values()].filter((state) => state.missed).length : 0,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     ballVisualScales: sim ? [...sim.balls.values()].map((ball) => ball.personality?.visualRadiusScale ?? 1) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
@@ -1148,6 +1208,16 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+
+function playbackStepForBudget(budget, audioClocked = false) {
+  const safeBudget = Math.max(0, Number(budget) || 0);
+  if (!audioClocked) return Math.min(fixedStep, safeBudget);
+  if (safeBudget > 0.75) return Math.min(0.25, safeBudget);
+  if (safeBudget > 0.25) return Math.min(1 / 8, safeBudget);
+  if (safeBudget > 0.08) return Math.min(1 / 20, safeBudget);
+  return Math.min(fixedStep, safeBudget);
+}
+
 function frame(now) {
   const raw = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
@@ -1155,13 +1225,32 @@ function frame(now) {
   advanceBlackHoleVisual(raw);
   if (running) {
     const audioTimeline = hasBackingAudio() && audio.enabled ? audio.backingTimelineTime() : null;
-    let budget = Number.isFinite(audioTimeline)
-      ? Math.max(0, Math.min(audioTimeline, playbackEndTime() + 1.35) - sim.time)
-      : raw * speedValues[speedIndex];
-    while (budget > 0) {
-      const dt = Math.min(budget > 0.75 ? 1 / 30 : fixedStep, budget);
-      stepSimulation(dt);
-      budget -= dt;
+    const audioClocked = Number.isFinite(audioTimeline);
+    if (audioClocked) {
+      // Use the Web Audio clock as the source of truth and re-sample it after
+      // catch-up work. Heavy frames can otherwise spend enough time in physics
+      // and lights for the backing track to pull ahead again before render.
+      lastFrameSyncPasses = 0;
+      for (let syncPass = 0; syncPass < 4; syncPass += 1) {
+        lastFrameSyncPasses = syncPass + 1;
+        const targetTimeline = audio.backingTimelineTime();
+        const budget = Math.max(0, Math.min(targetTimeline, playbackEndTime() + 1.35) - sim.time);
+        if (budget <= 1e-4) break;
+        stepSimulation(budget);
+      }
+      const finalTimeline = audio.backingTimelineTime();
+      lastRenderAudioVisualDrift = Number.isFinite(finalTimeline) ? sim.time - finalTimeline : null;
+    } else {
+      lastFrameSyncPasses = 0;
+      lastRenderAudioVisualDrift = null;
+      let budget = raw * speedValues[speedIndex];
+      let catchUpGuard = 0;
+      while (budget > 1e-6 && catchUpGuard < 720) {
+        catchUpGuard += 1;
+        const dt = playbackStepForBudget(budget, false);
+        stepSimulation(dt);
+        budget -= dt;
+      }
     }
   }
   render();

@@ -137,6 +137,25 @@ test('Pixi light layer renders restrained ball light so rhythm balls do not wash
   assert.match(pixiLayer, /drawBallLight/);
 });
 
+test('ball light rendering is budgeted and clusters orbit backlog lights for high-density scenes', async () => {
+  const { app, pixiLayer } = await projectFiles();
+
+  assert.match(app, /const maxRenderedBallLights = 128/);
+  assert.match(app, /const ballLightGridPx = 18/);
+  assert.match(app, /candidateCount > maxRenderedBallLights/);
+  assert.match(app, /cells\.set\(key, light\)/);
+  assert.match(app, /slice\(0, maxRenderedBallLights\)/);
+  assert.match(app, /ballLightCandidateCount/);
+  assert.match(app, /ballLightBudget/);
+  assert.match(app, /function blackHoleLightParticleBudget/);
+  assert.match(app, /active >= 120/);
+  assert.match(app, /blackHoleLightBudget/);
+  assert.match(app, /audioVisualDrift/);
+  assert.match(pixiLayer, /maxBallLights = 128/);
+  assert.match(pixiLayer, /Math\.min\(220, Math\.round\(Number\(maxBallLights\)/);
+  assert.match(pixiLayer, /quality: 2/);
+});
+
 test('scheduled note impacts draw particle sparks sized by amplitude', async () => {
   const { app } = await projectFiles();
 
@@ -151,7 +170,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-zero-missed-notes-v1/);
+  assert.match(html, /app\.js\?v=20260505-light-sync-v5/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -301,4 +320,21 @@ test('shared track auto-load avoids Web Audio resume until a user gesture is ava
 
   assert.match(app, /beginDemoPlayback\(\{ armAudio: authenticated \}\)/);
   assert.match(app, /decodeAudioData\(buffer, \{ resume: authenticated \}\)/);
+});
+
+test('MP3 playback uses the backing audio clock with bounded catch-up steps for sync', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /function playbackStepForBudget/);
+  assert.match(app, /const audioClocked = Number\.isFinite\(audioTimeline\)/);
+  assert.match(app, /if \(audioClocked\)/);
+  assert.match(app, /syncPass < 4/);
+  assert.match(app, /const targetTimeline = audio\.backingTimelineTime\(\)/);
+  assert.match(app, /stepSimulation\(budget\)/);
+  assert.match(app, /playbackStepForBudget\(budget, false\)/);
+  assert.match(app, /audioVisualDrift/);
+  assert.match(app, /lastRenderAudioVisualDrift/);
+  assert.match(app, /lastFrameSyncPasses/);
+  assert.match(app, /missedNotes/);
+  assert.match(app, /rhythmAlignmentApplied/);
 });

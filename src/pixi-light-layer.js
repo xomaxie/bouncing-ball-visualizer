@@ -101,7 +101,7 @@ function drawBallLight(graphic, light, color, power, { soft = false } = {}) {
   });
 }
 
-export async function createPixiLightParticleLayer({ host, width = 1, height = 1, dpr = 1, maxParticles = 220, maxBallLights = 420 } = {}) {
+export async function createPixiLightParticleLayer({ host, width = 1, height = 1, dpr = 1, maxParticles = 220, maxBallLights = 128 } = {}) {
   if (!host) throw new Error('Pixi light layer requires a host element');
 
   const app = new PIXI.Application();
@@ -128,8 +128,8 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
   dustContainer.blendMode = 'add';
   ballGlowContainer.blendMode = 'add';
   ballCoreContainer.blendMode = 'add';
-  glowContainer.filters = [new PIXI.BlurFilter({ strength: 1.65, quality: 4 })];
-  ballGlowContainer.filters = [new PIXI.BlurFilter({ strength: 2.4, quality: 4 })];
+  glowContainer.filters = [new PIXI.BlurFilter({ strength: 1.45, quality: 2 })];
+  ballGlowContainer.filters = [new PIXI.BlurFilter({ strength: 2.05, quality: 2 })];
   glowContainer.mask = mask;
   dustContainer.mask = mask;
   ballGlowContainer.mask = mask;
@@ -137,7 +137,7 @@ export async function createPixiLightParticleLayer({ host, width = 1, height = 1
   app.stage.addChild(mask, glowContainer, dustContainer, ballGlowContainer, ballCoreContainer);
 
   const count = Math.max(16, Math.min(1400, Math.round(Number(maxParticles) || 1120)));
-  const ballCount = Math.max(32, Math.min(900, Math.round(Number(maxBallLights) || 420)));
+  const ballCount = Math.max(32, Math.min(220, Math.round(Number(maxBallLights) || 128)));
   const softDust = [];
   const dust = [];
   for (let index = 0; index < count; index += 1) {
