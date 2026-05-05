@@ -89,6 +89,7 @@ a { color: var(--gold); text-decoration-thickness: 1px; text-underline-offset: 3
 }
 
 .canvasFrame {
+  position: relative;
   width: 100vw;
   height: 100vh;
   min-width: 320px;
@@ -100,6 +101,20 @@ canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+#arena {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.pixiFxLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
 }
 
 .uploadOverlay {

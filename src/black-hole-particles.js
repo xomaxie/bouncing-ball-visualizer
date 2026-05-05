@@ -59,6 +59,13 @@ function displayPowerForEnergy(energy = {}) {
   return clamp(Math.max(pulse, basePower + pulseBoost), 0, 1.15);
 }
 
+function softParticleVisibility(index, count, visibleFraction, feather = 0.12) {
+  const safeCount = Math.max(1, count);
+  const rank = (index + 0.5) / safeCount;
+  const safeFeather = Math.max(0.025, Number(feather) || 0.12);
+  return clamp((Number(visibleFraction || 0) - rank + safeFeather) / safeFeather, 0, 1);
+}
+
 function resetParticle(particle, system, rng) {
   const inner = system.innerRadius;
   const outer = system.outerRadius;
@@ -120,14 +127,18 @@ export function advanceBlackHoleParticles(system, dt = 0, energy = {}) {
   const angularBoost = 0.88 + power * 1.48;
   const pullBoost = 0.92 + power * 0.82;
   const innerLimit = system.innerRadius;
+  const steps = Math.max(1, Math.ceil(safeDt / (1 / 90)));
+  const stepDt = safeDt / steps;
 
-  for (const particle of system.particles) {
-    particle.angle += particle.angularVelocity * safeDt * angularBoost * (1 + system.radius / Math.max(system.radius, particle.orbitRadius));
-    particle.orbitRadius -= particle.inwardSpeed * safeDt * pullBoost;
-    particle.wobble += safeDt * (0.8 + Math.abs(particle.angularVelocity) * 0.55);
-    if (particle.orbitRadius < innerLimit || !Number.isFinite(particle.orbitRadius)) {
-      resetParticle(particle, system, system.rng);
-      particle.orbitRadius = Math.max(innerLimit, particle.orbitRadius);
+  for (let step = 0; step < steps; step += 1) {
+    for (const particle of system.particles) {
+      particle.angle += particle.angularVelocity * stepDt * angularBoost * (1 + system.radius / Math.max(system.radius, particle.orbitRadius));
+      particle.orbitRadius -= particle.inwardSpeed * stepDt * pullBoost;
+      particle.wobble += stepDt * (0.8 + Math.abs(particle.angularVelocity) * 0.55);
+      if (particle.orbitRadius < innerLimit || !Number.isFinite(particle.orbitRadius)) {
+        resetParticle(particle, system, system.rng);
+        particle.orbitRadius = Math.max(innerLimit, particle.orbitRadius);
+      }
     }
   }
   return system;
@@ -151,7 +162,8 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
 
-  return system.particles.slice(0, visibleCount).map((particle) => {
+  return system.particles.map((particle, index) => {
+    const visibility = softParticleVisibility(index, system.particles.length, visibleCount / Math.max(1, system.particles.length), 0.13);
     const radius = Math.max(system.innerRadius, Number(particle.orbitRadius || system.innerRadius)) * radiusScale;
     const angle = Number(particle.angle || 0);
     const wobble = Math.sin((particle.wobble || 0) + angle * 2.4) * system.radius * 0.22;
@@ -191,7 +203,8 @@ export function blackHoleParticleSnapshots(system, blackHole = {}, energy = {}) 
       size: particle.size * particleSizeScale,
       spriteRadius: 0,
       renderMode: 'curved-streak',
-      alpha: clamp(particle.alpha * alphaScale * (1.16 - Math.min(0.58, radius / (system.outerRadius * radiusScale))), 0.04, 1),
+      alpha: clamp(particle.alpha * alphaScale * visibility * (1.16 - Math.min(0.58, radius / (system.outerRadius * radiusScale))), 0, 1),
+      visibility,
       color: particle.color,
     };
   });
@@ -205,9 +218,8 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
   const pulse = energyPulse(energy);
   const energyLevel = clamp(Number(energy?.energy ?? displayPower), 0, 1);
   const emissionPower = clamp(displayPower * 0.78 + dominantEnergy * 0.42 + pulse * 0.22, 0, 1.15);
-  const visibleFraction = clamp(0.035 + emissionPower * 0.68, 0, 0.88);
+  const visibleFraction = clamp(0.026 + emissionPower * 0.68, 0, 0.88);
   const visibleCount = Math.max(0, Math.min(system.particles.length, Math.round(system.particles.length * visibleFraction)));
-  if (visibleCount <= 0) return [];
 
   const cx = Number(blackHole.x || 0);
   const cy = Number(blackHole.y || 0);
@@ -218,8 +230,9 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
   const alphaScale = 0.18 + emissionPower * 0.64 + dominantEnergy * 0.26;
   const glowScale = 0.92 + emissionPower * 1.18 + dominantEnergy * 0.72;
 
-  return system.particles.slice(0, visibleCount).map((particle, index) => {
-    const unit = index / Math.max(1, visibleCount - 1);
+  return system.particles.map((particle, index) => {
+    const visibility = softParticleVisibility(index, system.particles.length, visibleCount / Math.max(1, system.particles.length), 0.11);
+    const unit = index / Math.max(1, system.particles.length - 1);
     const angle = Number(particle.angle || 0) + Math.sin((particle.wobble || 0) * 0.8) * 0.05;
     const baseRadius = Math.max(system.innerRadius * 1.42, Number(particle.orbitRadius || system.innerRadius)) * discScale;
     const wobble = Math.sin((particle.wobble || 0) + angle * 1.7) * system.radius * 0.18;
@@ -241,7 +254,7 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
     const controlLocalY = (localY + tailLocalY) * 0.5 + tangentY * 0.58;
     const controlX = cx + controlLocalX * cosR - controlLocalY * sinR;
     const controlY = cy + controlLocalX * sinR + controlLocalY * cosR;
-    const baseAlpha = Number(particle.alpha || 0.45) * alphaScale * (0.62 + unit * 0.32);
+    const baseAlpha = Number(particle.alpha || 0.45) * alphaScale * visibility * (0.62 + unit * 0.32);
 
     return {
       id: particle.id,
@@ -254,7 +267,8 @@ export function blackHoleLightParticleSnapshots(system, blackHole = {}, energy =
       radius: baseRadius,
       glowRadius: (2.8 + particle.size * 3.4 + unit * 3.6) * glowScale,
       lineWidth: (0.42 + particle.size * 0.34) * (0.9 + emissionPower * 0.75),
-      alpha: clamp(baseAlpha, 0.035, 0.92),
+      alpha: clamp(baseAlpha, 0, 0.92),
+      visibility,
       color: dominantColor,
       spriteRadius: 0,
       renderMode: 'disc-light-particle',

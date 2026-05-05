@@ -8,12 +8,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 
 async function projectFiles() {
-  const [html, css, app] = await Promise.all([
+  const [html, css, app, pkg, pixiLayer] = await Promise.all([
     readFile(resolve(root, 'index.html'), 'utf8'),
     readFile(resolve(root, 'styles.css'), 'utf8'),
     readFile(resolve(root, 'src/app.js'), 'utf8'),
+    readFile(resolve(root, 'package.json'), 'utf8'),
+    readFile(resolve(root, 'src/pixi-light-layer.js'), 'utf8'),
   ]);
-  return { html, css, app };
+  return { html, css, app, pkg, pixiLayer };
 }
 
 test('demo UI starts as a suspended black upload-only screen', async () => {
@@ -144,7 +146,7 @@ test('scheduled note impacts draw particle sparks sized by amplitude', async () 
 test('demo draws a particle-system black hole and enables stronger real field-solved maneuvers', async () => {
   const { html, app } = await projectFiles();
 
-  assert.match(html, /app\.js\?v=20260505-disc-light-particles-v1/);
+  assert.match(html, /app\.js\?v=20260505-pixi-lightfield-v2/);
   assert.match(app, /black-hole-particles\.js/);
   assert.match(app, /createBlackHoleParticleSystem/);
   assert.match(app, /advanceBlackHoleParticles/);
@@ -178,10 +180,37 @@ test('black-hole disc emits energy-scaled light particles using the current domi
   assert.match(app, /blackHoleLightParticleCount/);
 });
 
+
+test('black-hole disc light uses a PixiJS library layer instead of hand-drawn light sprites', async () => {
+  const { app, pkg, pixiLayer } = await projectFiles();
+  const packageJson = JSON.parse(pkg);
+
+  assert.equal(packageJson.dependencies['pixi.js'], '8.18.1');
+  assert.match(app, /pixi-light-layer\.js/);
+  assert.match(app, /ensurePixiLightLayer/);
+  assert.match(app, /renderBlackHoleLightParticlesWithLibrary/);
+  assert.match(pixiLayer, /vendor\/pixi\/pixi\.esm\.js/);
+  assert.match(pixiLayer, /new PIXI\.Application/);
+  assert.match(pixiLayer, /blendMode = 'add'|blendMode: 'add'/);
+  assert.match(pixiLayer, /new PIXI\.BlurFilter/);
+  assert.doesNotMatch(app, /createRadialGradient\(particle\.x, particle\.y, 0, particle\.x, particle\.y, glowRadius\)/);
+});
+
+test('black-hole energy is smoothed before rendering so the accretion disc does not jerk', async () => {
+  const { app } = await projectFiles();
+
+  assert.match(app, /let smoothedBlackHoleEnergy/);
+  assert.match(app, /function settleBlackHoleEnergyTarget/);
+  assert.match(app, /function advanceSmoothedBlackHoleEnergy/);
+  assert.match(app, /blackHoleEnergyState\(\)/);
+  assert.match(app, /advanceSmoothedBlackHoleEnergy\(raw\)/);
+});
+
 test('source metadata remains available without visual chrome', async () => {
   const { html } = await projectFiles();
 
   assert.match(html, /Spotify Basic Pitch/);
+  assert.match(html, /PixiJS/);
   assert.match(html, /https:\/\/github\.com\/spotify\/basic-pitch/);
   assert.match(html, /Mutopia Project/);
   assert.match(html, /Public Domain/);

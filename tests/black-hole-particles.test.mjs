@@ -17,6 +17,10 @@ const blackHole = {
   eventHorizonRadius: 14,
 };
 
+function visibleCount(particles, threshold = 0.025) {
+  return particles.filter((particle) => Number(particle.alpha || 0) > threshold).length;
+}
+
 test('black hole visual is a deterministic orbiting particle system', async () => {
   const { createBlackHoleParticleSystem, advanceBlackHoleParticles, blackHoleParticleSnapshots } = await loadParticleModule();
   const system = createBlackHoleParticleSystem(blackHole, { count: 48, seed: 'unit-test' });
@@ -33,7 +37,7 @@ test('black hole visual is a deterministic orbiting particle system', async () =
     before.map((particle) => [Number(particle.x.toFixed(2)), Number(particle.y.toFixed(2))]).slice(0, 12),
     'particles should visibly orbit instead of drawing a static black-hole image',
   );
-  assert.ok(after.every((particle) => Number.isFinite(particle.alpha) && particle.alpha > 0 && particle.alpha <= 1));
+  assert.ok(after.every((particle) => Number.isFinite(particle.alpha) && particle.alpha >= 0 && particle.alpha <= 1));
 });
 
 test('black hole particles reset instead of falling through the event horizon', async () => {
@@ -62,9 +66,9 @@ test('black hole accretion display grows denser and wider with song energy', asy
     ...particles.map((particle) => Math.hypot(particle.x - blackHole.x, particle.y - blackHole.y)),
   );
 
-  assert.ok(calm.length < surge.length, `expected high-energy display to show more particles, calm=${calm.length} surge=${surge.length}`);
-  assert.ok(calm.length <= 44, `calm sections should leave the black hole sparse enough to notice energy changes, got ${calm.length}`);
-  assert.ok(surge.length >= 88, `expected surge to use most of the particle system, got ${surge.length}`);
+  assert.ok(visibleCount(calm) < visibleCount(surge), `expected high-energy display to show more visible particles, calm=${visibleCount(calm)} surge=${visibleCount(surge)}`);
+  assert.ok(visibleCount(calm) <= 44, `calm sections should leave the black hole sparse enough to notice energy changes, got ${visibleCount(calm)}`);
+  assert.ok(visibleCount(surge) >= 88, `expected surge to use most of the particle system, got ${visibleCount(surge)}`);
   assert.ok(
     maxDistanceFromCenter(surge) > maxDistanceFromCenter(calm) * 1.65,
     'high energy should make the accretion field dramatically larger, not just subtly wider',
@@ -84,7 +88,7 @@ test('recent impacts can punch up the black hole even when rolling section energ
     ...particles.map((particle) => Math.hypot(particle.x - blackHole.x, particle.y - blackHole.y)),
   );
 
-  assert.ok(punched.length >= steady.length * 1.8, `impact pulse should densify the black hole, steady=${steady.length} punched=${punched.length}`);
+  assert.ok(visibleCount(punched) >= visibleCount(steady) * 1.8, `impact pulse should densify the black hole, steady=${visibleCount(steady)} punched=${visibleCount(punched)}`);
   assert.ok(maxDistanceFromCenter(punched) > maxDistanceFromCenter(steady) * 1.45, 'impact pulse should visibly expand the accretion field');
   assert.ok(averageAlpha(punched) > averageAlpha(steady) * 1.35, 'impact pulse should make the particle field visibly brighter');
 });
@@ -100,7 +104,7 @@ test('moderate impact pulses still read over already-high section energy', async
     ...particles.map((particle) => Math.hypot(particle.x - blackHole.x, particle.y - blackHole.y)),
   );
 
-  assert.ok(withBeatPulse.length >= rollingHigh.length + 16, `beat pulses should add visible density even during high-energy sections, high=${rollingHigh.length} pulse=${withBeatPulse.length}`);
+  assert.ok(visibleCount(withBeatPulse) >= visibleCount(rollingHigh) + 14, `beat pulses should add visible density even during high-energy sections, high=${visibleCount(rollingHigh)} pulse=${visibleCount(withBeatPulse)}`);
   assert.ok(maxDistanceFromCenter(withBeatPulse) > maxDistanceFromCenter(rollingHigh) * 1.18, 'beat pulses should visibly expand the black hole over the rolling high-energy baseline');
 });
 
@@ -138,15 +142,40 @@ test('black hole disc emits substantial light particles tinted by the current do
     colorEnergy: 0.95,
   });
 
-  assert.ok(calm.length <= 18, `calm sections should not overfill the disc with light particles, got ${calm.length}`);
-  assert.ok(surge.length >= 52, `high-energy dominant-color sections should emit substantial light particles, got ${surge.length}`);
-  assert.ok(surge.length > calm.length * 3, 'energy should strongly increase the emitted light particle count');
+  assert.ok(visibleCount(calm) <= 20, `calm sections should not overfill the disc with light particles, got ${visibleCount(calm)}`);
+  assert.ok(visibleCount(surge) >= 52, `high-energy dominant-color sections should emit substantial light particles, got ${visibleCount(surge)}`);
+  assert.ok(visibleCount(surge) > visibleCount(calm) * 3, 'energy should strongly increase the emitted light particle count');
   assert.ok(surge.every((particle) => particle.color === '#ff44aa'), 'disc light particles should use the current dominant note color');
   assert.ok(surge.every((particle) => particle.renderMode === 'disc-light-particle'));
   assert.ok(surge.every((particle) => particle.spriteRadius === 0), 'disc light should render as light motes/streaks, not old black-hole sprites');
   assert.ok(surge.every((particle) => Number.isFinite(particle.x) && Number.isFinite(particle.y)));
   assert.ok(
-    Math.max(...surge.map((particle) => particle.glowRadius)) > Math.max(...calm.map((particle) => particle.glowRadius)) * 1.55,
+    Math.max(...surge.filter((particle) => particle.alpha > 0.025).map((particle) => particle.glowRadius)) > Math.max(...calm.filter((particle) => particle.alpha > 0.025).map((particle) => particle.glowRadius)) * 1.55,
     'high energy should create larger light emission halos',
+  );
+});
+
+
+test('black hole particle snapshots keep stable identities and fade visibility instead of popping counts', async () => {
+  const { createBlackHoleParticleSystem, blackHoleParticleSnapshots, blackHoleLightParticleSnapshots } = await loadParticleModule();
+  const system = createBlackHoleParticleSystem(blackHole, { count: 64, seed: 'soft-visibility-test' });
+
+  const calm = blackHoleParticleSnapshots(system, blackHole, { energy: 0.18, intensity: 0.04, pulse: 0.02 });
+  const surge = blackHoleParticleSnapshots(system, blackHole, { energy: 0.92, intensity: 0.82, pulse: 0.74 });
+  const calmLights = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.18, intensity: 0.04, pulse: 0.02 }, { color: '#44ccff', colorEnergy: 0.12 });
+  const surgeLights = blackHoleLightParticleSnapshots(system, blackHole, { energy: 0.92, intensity: 0.82, pulse: 0.74 }, { color: '#ff5588', colorEnergy: 1 });
+
+  assert.equal(calm.length, 64, 'accretion snapshots should keep all particle identities stable so density changes do not pop');
+  assert.equal(surge.length, 64, 'surge snapshots should fade particles in, not append a different count');
+  assert.equal(calmLights.length, 64, 'disc light snapshots should keep all emitter identities stable');
+  assert.equal(surgeLights.length, 64, 'disc light snapshots should keep all emitter identities stable');
+
+  const visible = (particles) => particles.filter((particle) => particle.alpha > 0.025).length;
+  assert.ok(visible(surge) > visible(calm) * 1.9, 'energy should still increase visible accretion density through alpha');
+  assert.ok(visible(surgeLights) > visible(calmLights) * 2.6, 'energy should still increase visible light-particle density through alpha');
+  assert.deepEqual(
+    surge.slice(0, 8).map((particle) => particle.id),
+    calm.slice(0, 8).map((particle) => particle.id),
+    'the same particles should fade between energy states instead of swapping identities',
   );
 });

@@ -17,7 +17,8 @@ import {
   blackHoleLightParticleSnapshots,
   blackHoleParticleSnapshots,
   createBlackHoleParticleSystem,
-} from './black-hole-particles.js?v=20260505-disc-light-particles-v1';
+} from './black-hole-particles.js?v=20260505-pixi-lightfield-v2';
+import { createPixiLightParticleLayer } from './pixi-light-layer.js?v=20260505-pixi-lightfield-v2';
 import { energyAtTime, sceneModeForEnergy } from './energy.js?v=20260504-personality-v1';
 import { fetchYoutubeAudio, isLikelyYouTubeUrl } from './youtube-import.js?v=20260505-youtube-import';
 
@@ -80,7 +81,11 @@ let lightCanvas = null;
 let lightCtx = null;
 let blackHoleParticleSystem = null;
 let blackHoleParticleKey = '';
+let pixiLightLayer = null;
+let pixiLightLayerPromise = null;
+let pixiLightLayerFailed = false;
 let currentSceneMode = sceneModeForEnergy();
+let smoothedBlackHoleEnergy = null;
 const lightBufferScale = 0.36;
 const speedValues = [0.35, 1, 1.75];
 
@@ -159,6 +164,7 @@ function resize() {
   canvas.style.height = `${H}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   arena = { cx: W * 0.5, cy: H * 0.5, radius: Math.min(W, H) * 0.39 };
+  if (pixiLightLayer?.ready) pixiLightLayer.resize({ width: W, height: H, dpr });
   return changed;
 }
 
@@ -220,6 +226,7 @@ function advanceBlackHoleVisual(dt) {
 function resetVisualEffects() {
   visualEffects = createVisualEffectsState({ bandCount: 56 });
   currentSceneMode = sceneModeForEnergy();
+  smoothedBlackHoleEnergy = settleBlackHoleEnergyTarget();
 }
 
 function currentEnergyState() {
@@ -228,10 +235,11 @@ function currentEnergyState() {
     : { energy: 0, intensity: 0, level: 'low' };
 }
 
-function blackHoleEnergyState() {
+function settleBlackHoleEnergyTarget() {
   const state = currentEnergyState();
   const pulse = Math.max(0, Math.min(1.15, Number(visualEffects?.blackHolePulse ?? 0)));
-  const energy = Math.max(0, Math.min(1, Math.max(Number(state.energy ?? 0), pulse * 0.86)));
+  const rawEnergy = Math.max(0, Math.min(1, Number(state.energy ?? 0)));
+  const energy = Math.max(rawEnergy, Math.min(1, pulse * 0.86));
   const intensity = Math.max(0, Math.min(1, Number(state.intensity ?? 0)));
   return {
     ...state,
@@ -239,6 +247,34 @@ function blackHoleEnergyState() {
     intensity,
     pulse,
   };
+}
+
+function smoothScalar(current, target, dt, attack = 12, release = 4.8) {
+  const safeCurrent = Number.isFinite(Number(current)) ? Number(current) : Number(target) || 0;
+  const safeTarget = Number.isFinite(Number(target)) ? Number(target) : 0;
+  const rate = safeTarget > safeCurrent ? attack : release;
+  const alpha = 1 - Math.exp(-Math.max(0, Number(dt) || 0) * rate);
+  return safeCurrent + (safeTarget - safeCurrent) * alpha;
+}
+
+function advanceSmoothedBlackHoleEnergy(dt = 0) {
+  const target = settleBlackHoleEnergyTarget();
+  if (!smoothedBlackHoleEnergy) {
+    smoothedBlackHoleEnergy = target;
+    return smoothedBlackHoleEnergy;
+  }
+  const safeDt = Math.max(0, Math.min(0.05, Number(dt) || 0));
+  smoothedBlackHoleEnergy = {
+    ...target,
+    energy: smoothScalar(smoothedBlackHoleEnergy.energy, target.energy, safeDt, 10.5, 3.9),
+    intensity: smoothScalar(smoothedBlackHoleEnergy.intensity, target.intensity, safeDt, 8.5, 3.2),
+    pulse: smoothScalar(smoothedBlackHoleEnergy.pulse, target.pulse, safeDt, 16, 5.2),
+  };
+  return smoothedBlackHoleEnergy;
+}
+
+function blackHoleEnergyState() {
+  return smoothedBlackHoleEnergy || settleBlackHoleEnergyTarget();
 }
 
 function blackHoleVisualState(blackHole = plan?.blackHole, energyState = blackHoleEnergyState()) {
@@ -721,6 +757,43 @@ function drawWall() {
   ctx.restore();
 }
 
+function ensurePixiLightLayer() {
+  if (pixiLightLayer?.ready) return pixiLightLayer;
+  if (pixiLightLayerFailed || pixiLightLayerPromise || !canvasFrame) return pixiLightLayer;
+  pixiLightLayerPromise = createPixiLightParticleLayer({
+    host: canvasFrame,
+    width: W || canvasFrame.clientWidth || window.innerWidth || 1,
+    height: H || canvasFrame.clientHeight || window.innerHeight || 1,
+    dpr: DPR(),
+    maxParticles: 240,
+  })
+    .then((layer) => {
+      pixiLightLayer = layer;
+      pixiLightLayer.resize({ width: W, height: H, dpr: DPR() });
+      return layer;
+    })
+    .catch((error) => {
+      pixiLightLayerFailed = true;
+      console.warn('Pixi light layer unavailable; using canvas fallback', error);
+      return null;
+    })
+    .finally(() => {
+      pixiLightLayerPromise = null;
+    });
+  return pixiLightLayer;
+}
+
+function renderBlackHoleLightParticlesWithLibrary(lightParticles, power = 0) {
+  const layer = ensurePixiLightLayer();
+  if (!layer?.ready) return false;
+  layer.render({
+    particles: lightParticles || [],
+    arena,
+    power,
+  });
+  return true;
+}
+
 function drawBlackHole() {
   const blackHole = plan?.blackHole;
   if (!blackHole) return;
@@ -740,7 +813,7 @@ function drawBlackHole() {
   ctx.clip();
   ctx.globalCompositeOperation = 'lighter';
 
-  drawBlackHoleLightParticles(lightParticles, power);
+  if (!renderBlackHoleLightParticlesWithLibrary(lightParticles, power)) drawBlackHoleLightParticles(lightParticles, power);
 
   for (const particle of particles) {
     const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
@@ -785,12 +858,14 @@ function drawBlackHole() {
 function drawBlackHoleLightParticles(lightParticles, power = 0) {
   if (!lightParticles?.length) return;
 
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
   for (const particle of lightParticles) {
     if (particle.renderMode === 'disc-light-particle') {
       const alpha = Math.max(0, Math.min(1, particle.alpha || 0));
       if (alpha <= 0.02) continue;
 
-      ctx.globalAlpha = alpha * (0.48 + power * 0.38);
+      ctx.globalAlpha = alpha * (0.42 + power * 0.32);
       ctx.strokeStyle = colorWithAlpha(particle.color, 0.84);
       ctx.lineWidth = Math.max(0.35, Number(particle.lineWidth || 0.7));
       ctx.lineCap = 'round';
@@ -805,18 +880,14 @@ function drawBlackHoleLightParticles(lightParticles, power = 0) {
       );
       ctx.stroke();
 
-      const glowRadius = Math.max(1.8, Number(particle.glowRadius || 5));
-      const glow = ctx.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, glowRadius);
-      glow.addColorStop(0, colorWithAlpha(particle.color, alpha * (0.46 + power * 0.24)));
-      glow.addColorStop(0.36, colorWithAlpha(particle.color, alpha * 0.18));
-      glow.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = glow;
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = alpha * (0.15 + power * 0.10);
+      ctx.fillStyle = colorWithAlpha(particle.color, 0.6);
       ctx.beginPath();
-      ctx.arc(particle.x, particle.y, glowRadius, 0, Math.PI * 2);
+      ctx.arc(particle.x, particle.y, Math.max(0.9, Number(particle.lineWidth || 0.7) * 1.5), 0, Math.PI * 2);
       ctx.fill();
     }
   }
+  ctx.restore();
 }
 
 function drawBalls() {
@@ -875,7 +946,10 @@ function drawBalls() {
 function render() {
   updateSceneMode();
   ctx.clearRect(0, 0, W, H);
-  if (!plan || !sim) return;
+  if (!plan || !sim) {
+    if (pixiLightLayer?.ready) pixiLightLayer.clear();
+    return;
+  }
   drawExteriorFrequencyField();
   drawWall();
   drawLightSystem();
@@ -1006,15 +1080,18 @@ window.MusicVisualizerDebug = {
     maxBlackHoleMissDistance: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.missDistance || 0)) : 0,
     blackHoleBendPx: blackHoleBendStats(),
     blackHoleParticleCount: blackHoleParticleSystem?.particles?.length ?? 0,
-    blackHoleParticleVisibleCount: plan?.blackHole ? blackHoleParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState()).length : 0,
+    blackHoleParticleVisibleCount: plan?.blackHole
+      ? blackHoleParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState()).filter((particle) => particle.alpha > 0.025).length
+      : 0,
     blackHoleVisualScale: blackHoleVisualState()?.sizeScale ?? 1,
     blackHoleVisualDensity: blackHoleVisualState()?.density ?? 0,
     blackHoleVisualPower: blackHoleVisualState()?.power ?? 0,
     blackHolePulse: visualEffects?.blackHolePulse ?? 0,
     blackHoleDominantNoteColor: visualEffects?.dominantNoteColor ?? null,
     blackHoleDominantNoteEnergy: visualEffects?.dominantNoteEnergy ?? 0,
+    pixiLightLayer: pixiLightLayer?.kind ?? (pixiLightLayerFailed ? 'unavailable' : 'pending'),
     blackHoleLightParticleCount: plan?.blackHole
-      ? blackHoleLightParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState(), blackHoleDominantColorState()).length
+      ? blackHoleLightParticleSnapshots(blackHoleParticleSystem, plan.blackHole, blackHoleEnergyState(), blackHoleDominantColorState()).filter((particle) => particle.alpha > 0.025).length
       : 0,
     ballRadii: sim ? [...sim.balls.values()].map((ball) => ball.radius) : [],
     peakSegmentEnergy: plan?.events?.length ? Math.max(0, ...plan.events.map((segment) => segment.energy || 0)) : 0,
@@ -1039,6 +1116,7 @@ function escapeHtml(value) {
 function frame(now) {
   const raw = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
+  advanceSmoothedBlackHoleEnergy(raw);
   advanceBlackHoleVisual(raw);
   if (running) {
     const audioTimeline = hasBackingAudio() && audio.enabled ? audio.backingTimelineTime() : null;
