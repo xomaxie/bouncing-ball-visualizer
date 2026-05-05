@@ -432,3 +432,57 @@ test('hitPlaybackSegment recolors a ball to the rainbow wall color it impacts', 
 
   assert.equal(ball.color, segment.wallColor);
 });
+
+
+test('advancePlayback does not emit a note impact after the assigned ball is destroyed by the black hole before arrival', () => {
+  const blackHole = {
+    enabled: true,
+    x: arena.cx,
+    y: arena.cy,
+    radius: 18,
+    strength: 0,
+    softeningRadius: 40,
+    eventHorizonRadius: 28,
+  };
+  const segment = {
+    id: 'captured-before-note:0',
+    ballId: 'captured-before-note-ball',
+    trackId: 0,
+    trackName: 'capture miss',
+    target: { x: arena.cx + arena.radius, y: arena.cy },
+    centerTarget: { x: arena.cx + arena.radius - 8, y: arena.cy },
+    start: { x: arena.cx - arena.radius + 8, y: arena.cy },
+    launchTime: 0,
+    arrivalTime: 1,
+    duration: 1,
+    velocity: { x: (arena.radius - 8) * 2, y: 0 },
+    gravityY: 0,
+    blackHole,
+    wallColor: '#fff',
+    note: { time: 1, duration: 0.12, midi: 60, velocity: 0.8 },
+  };
+  const plan = {
+    tracks: [{ id: 0, color: '#52d6ff', balls: [{ id: 'captured-before-note-ball', events: [segment] }], segments: [segment] }],
+    events: [segment],
+    duration: 1.2,
+    options: { ballRadius: 8, gravityY: 0, blackHole },
+    blackHole,
+  };
+  const sim = createPlaybackState(plan, arena);
+  let hits = 0;
+  let captures = 0;
+  let misses = 0;
+
+  while (sim.time < segment.arrivalTime + 0.01 - 1e-9) {
+    advancePlayback(sim, plan, arena, Math.min(1 / 60, segment.arrivalTime + 0.01 - sim.time), {
+      onHit: () => { hits += 1; },
+      onBlackHoleCapture: () => { captures += 1; },
+      onMiss: () => { misses += 1; },
+    });
+  }
+
+  assert.ok(captures >= 1, 'test setup should destroy the ball before the scheduled note time');
+  assert.equal(misses, 1, 'the missed scheduled note should be recorded once and not retried every frame');
+  assert.equal(sim.segmentStates.get(segment.id).missed, true, 'the scheduled note should be marked missed instead of hit');
+  assert.equal(hits, 0, 'a scheduled explosion/audio note should not fire when no assigned ball reaches the wall target');
+});

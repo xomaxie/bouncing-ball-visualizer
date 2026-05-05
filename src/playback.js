@@ -94,7 +94,7 @@ export function createPlaybackState(plan, arena) {
     }
 
     for (const segment of track.segments) {
-      segmentStates.set(segment.id, { launched: false, hit: false });
+      segmentStates.set(segment.id, { launched: false, hit: false, missed: false, missReason: null });
     }
   }
 
@@ -144,6 +144,55 @@ export function launchPlaybackSegment(sim, segment) {
   if (state) state.launched = true;
 
   return { ball, segment, previous, jumpDistance };
+}
+
+
+function scheduledHitTolerance(ball, segment) {
+  const radius = Math.max(0, Number(segment?.ballRadius ?? ball?.radius ?? 0));
+  const solverMiss = Math.max(0, Number(segment?.missDistance || 0));
+  return Math.max(7.5, radius * 1.35, solverMiss + 3.5);
+}
+
+function validatePlaybackSegmentHit(sim, arena, segment) {
+  const ball = sim?.balls?.get(segment?.ballId);
+  if (!ball) return { ok: false, reason: 'missing-ball', ball: null };
+  if (!ball.spawned || ball.retired) return { ok: false, reason: 'inactive-ball', ball };
+  if (ball.blackHoleCaptured || ball.blackHoleDestroyed) return { ok: false, reason: 'black-hole-captured', ball };
+  if (ball.armedSegmentId !== segment.id) {
+    return { ok: false, reason: 'unarmed-ball', ball, armedSegmentId: ball.armedSegmentId ?? null };
+  }
+
+  const center = segment.centerTarget || segment.target;
+  if (!center) return { ok: true, ball, distance: 0, tolerance: Infinity };
+  const distance = Math.hypot((ball.x || 0) - center.x, (ball.y || 0) - center.y);
+  const tolerance = scheduledHitTolerance(ball, segment);
+  if (distance > tolerance) {
+    return { ok: false, reason: 'missed-target', ball, distance, tolerance };
+  }
+  return { ok: true, ball, distance, tolerance };
+}
+
+function missPlaybackSegment(sim, plan, segment, validation = {}) {
+  const state = sim?.segmentStates?.get(segment.id);
+  if (state) {
+    state.missed = true;
+    state.missReason = validation.reason || 'missed';
+    state.missDistance = validation.distance ?? null;
+  }
+
+  const ball = validation.ball || sim?.balls?.get(segment.ballId);
+  if (ball?.armedSegmentId === segment.id) ball.armedSegmentId = null;
+  if (ball && !ball.retired && ball.spawned && !ball.blackHoleCaptured && !ball.blackHoleDestroyed) {
+    const blackHole = segment.blackHole || plan.blackHole || plan.options?.blackHole || null;
+    if (!parkBallInBlackHoleOrbit(ball, blackHole, sim.time)) {
+      ball.spawned = false;
+      ball.retired = true;
+      ball.vx = 0;
+      ball.vy = 0;
+    }
+  }
+
+  return { segment, ball, validation, missed: true };
 }
 
 export function hitPlaybackSegment(sim, plan, arena, segment) {
@@ -209,7 +258,13 @@ function processEventsAtCurrentTime(sim, plan, arena, callbacks) {
 
   for (const segment of plan.events) {
     const state = sim.segmentStates.get(segment.id);
-    if (!state || state.hit || segment.arrivalTime > sim.time + EPSILON) continue;
+    if (!state || state.hit || state.missed || segment.arrivalTime > sim.time + EPSILON) continue;
+    const validation = validatePlaybackSegmentHit(sim, arena, segment);
+    if (!validation.ok) {
+      const miss = missPlaybackSegment(sim, plan, segment, validation);
+      callbacks.onMiss?.(miss);
+      continue;
+    }
     const hit = hitPlaybackSegment(sim, plan, arena, segment);
     if (hit) {
       callbacks.onHit?.(hit);
@@ -228,7 +283,7 @@ function nextPendingEventTime(sim, plan, targetTime) {
     if (!state.launched && segment.launchTime > sim.time + EPSILON && segment.launchTime < nextTime - EPSILON) {
       nextTime = segment.launchTime;
     }
-    if (!state.hit && segment.arrivalTime > sim.time + EPSILON && segment.arrivalTime < nextTime - EPSILON) {
+    if (!state.hit && !state.missed && segment.arrivalTime > sim.time + EPSILON && segment.arrivalTime < nextTime - EPSILON) {
       nextTime = segment.arrivalTime;
     }
   }
